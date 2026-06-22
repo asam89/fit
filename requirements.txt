@@ -24,8 +24,8 @@ python-dotenv==1.0.1
 # Timezone
 pytz==2024.2
 
-# Scheduling (Phase 2+)
-# apscheduler==3.10.4
+# Scheduling
+apscheduler==3.10.4
 
 # Charts (Phase 2+)
 # matplotlib==3.9.3

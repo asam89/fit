@@ -1,30 +1,32 @@
 {% extends "base.html" %}
-{% block title %}Login{% endblock %}
+{% block title %}Sign In{% endblock %}
 {% block content %}
 <div class="min-h-[80vh] flex items-center justify-center">
-  <div class="bg-white p-8 rounded-xl shadow-md w-full max-w-md">
-    <h1 class="text-2xl font-bold text-center text-gray-900 mb-6">Sign In</h1>
+  <div class="bg-white border border-gray-200 p-8 rounded-xl shadow-sm w-full max-w-md">
+    <div class="text-center mb-6">
+      <h1 class="font-display text-2xl font-bold tracking-tight">fit<span class="text-accent">.</span><span class="text-faint font-medium">io</span></h1>
+      <p class="text-sm text-muted mt-1">Sign in to your dashboard</p>
+    </div>
     {% if error %}
-    <div class="bg-red-50 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">{{ error }}</div>
+    <div class="bg-warm-soft text-miss px-4 py-3 rounded-lg mb-4 text-sm">{{ error }}</div>
     {% endif %}
     <form method="POST" action="/login" class="space-y-4">
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
         <input type="email" name="email" required
-               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none">
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
         <input type="password" name="password" required
-               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none">
       </div>
-      <button type="submit"
-              class="w-full py-2 px-4 bg-brand-600 text-white rounded-lg hover:bg-brand-700 font-medium">
+      <button type="submit" class="w-full py-2.5 px-4 bg-accent text-white rounded-lg hover:bg-accent-press font-semibold text-sm transition-colors">
         Sign In
       </button>
     </form>
-    <p class="text-center text-sm text-gray-500 mt-4">
-      Don't have an account? <a href="/register" class="text-brand-600 hover:text-brand-700 font-medium">Register</a>
+    <p class="text-center text-sm text-muted mt-4">
+      Don't have an account? <a href="/register" class="text-accent hover:text-accent-press font-medium">Register</a>
     </p>
   </div>
 </div>

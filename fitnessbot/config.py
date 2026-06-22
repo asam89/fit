@@ -46,6 +46,7 @@ class Config:
     # --- Behavior ---
     TIMEZONE: str = os.getenv("TIMEZONE", "America/Toronto")
     QUIET_HOURS: str = os.getenv("QUIET_HOURS", "22:00-07:00")
+    BRIEFING_TIMES: str = os.getenv("BRIEFING_TIMES", "07:30,13:00,20:30")
 
     # --- Paths ---
     BASE_DIR: Path = Path(__file__).resolve().parent.parent

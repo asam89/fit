@@ -1,46 +1,65 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-gray-50">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}Fit{% endblock %} — Health Intelligence</title>
+  <title>{% block title %}Fit{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
       theme: {
         extend: {
-          colors: { brand: { 50: '#f0fdf4', 100: '#dcfce7', 500: '#22c55e', 600: '#16a34a', 700: '#15803d' } }
+          colors: {
+            canvas: '#F4F5F7', surface: '#FFFFFF', ink: '#14161D',
+            muted: '#646B7A', faint: '#9aa1b0',
+            accent: '#2D52F5', 'accent-soft': '#EEF1FE', 'accent-press': '#2241cf',
+            good: '#11A36B', 'good-soft': '#E7F6EF',
+            miss: '#E04338', 'warm-soft': '#FEF1EC', amber: '#B25410',
+          },
+          fontFamily: {
+            display: ['"Space Grotesk"', 'system-ui', 'sans-serif'],
+            body: ['"Inter"', 'system-ui', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+          }
         }
       }
     }
   </script>
+  <style>
+    html,body{margin:0;background:#F4F5F7;color:#14161D;font-family:"Inter",system-ui,sans-serif;
+      -webkit-font-smoothing:antialiased;font-feature-settings:"cv02","cv03","cv04";}
+    ::selection{background:#cfd9ff}
+  </style>
+  {% block head %}{% endblock %}
 </head>
-<body class="h-full">
+<body>
   {% if user %}
-  <nav class="bg-white shadow-sm border-b border-gray-200">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex justify-between h-14">
-        <div class="flex items-center space-x-6">
-          <a href="/dashboard" class="text-lg font-bold text-brand-700">Fit</a>
-          <a href="/dashboard" class="text-sm text-gray-600 hover:text-gray-900">Dashboard</a>
-          <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900">Profile</a>
-          <a href="/health-data" class="text-sm text-gray-600 hover:text-gray-900">Health Data</a>
-          <a href="/goals" class="text-sm text-gray-600 hover:text-gray-900">Goals</a>
-          <a href="/connections" class="text-sm text-gray-600 hover:text-gray-900">Connections</a>
-          {% if user.is_superadmin %}
-          <a href="/admin" class="text-sm text-purple-600 hover:text-purple-800 font-medium">Admin</a>
-          {% endif %}
-        </div>
-        <div class="flex items-center space-x-4">
-          <span class="text-sm text-gray-500">{{ user.display_name }}</span>
-          <a href="/logout" class="text-sm text-red-600 hover:text-red-800">Logout</a>
-        </div>
+  <header class="sticky top-0 z-50 bg-white/80 backdrop-blur-sm border-b border-gray-200/60">
+    <div class="max-w-3xl mx-auto px-5 h-14 flex items-center justify-between">
+      <a href="/dashboard" class="font-display font-bold text-xl tracking-tight">
+        fit<span class="text-accent">.</span><span class="text-faint font-medium">io</span>
+      </a>
+      <div class="flex items-center gap-4">
+        {% if user.is_superadmin %}
+        <a href="/admin" class="text-xs font-mono uppercase tracking-wider text-purple-500 hover:text-purple-700">Admin</a>
+        {% endif %}
+        <span class="text-sm text-muted">{{ user.display_name }}</span>
+        <a href="/settings" class="p-1.5 rounded-lg hover:bg-gray-100 transition-colors" title="Settings">
+          <svg class="w-5 h-5 text-muted" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
+          </svg>
+        </a>
+        <a href="/logout" class="text-xs text-miss hover:text-red-700">Logout</a>
       </div>
     </div>
-  </nav>
+  </header>
   {% endif %}
 
-  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <main class="max-w-3xl mx-auto px-5 py-8">
     {% block content %}{% endblock %}
   </main>
 </body>
