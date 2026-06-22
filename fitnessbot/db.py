@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA_SQL = """
 -- users
@@ -79,7 +79,16 @@ CREATE TABLE IF NOT EXISTS goals (
     target_fat INTEGER,
     start_date TEXT NOT NULL,
     end_date TEXT,
-    status TEXT NOT NULL DEFAULT 'active',  -- active, completed, paused
+    status TEXT NOT NULL DEFAULT 'active',  -- active, completed, paused, achieved, missed
+    raw_input TEXT,  -- original user input
+    refined_statement TEXT,  -- Claude-refined goal statement
+    refined_why TEXT,
+    refined_metric TEXT,
+    refined_target_date TEXT,
+    steps_json TEXT,  -- JSON array: [{"id": "...", "text": "...", "done": false}]
+    debrief_notes TEXT,
+    debrief_json TEXT,  -- JSON: {"reasons": [], "improvements": [], "nextMove": ""}
+    closed_at TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
@@ -381,6 +390,25 @@ def run_migrations() -> None:
                     (Config.SUPER_ADMIN_EMAIL,),
                 )
             conn.execute("INSERT INTO schema_version (version) VALUES (2)")
+            conn.commit()
+        if current < 3:
+            goal_cols = [
+                ("raw_input", "TEXT"),
+                ("refined_statement", "TEXT"),
+                ("refined_why", "TEXT"),
+                ("refined_metric", "TEXT"),
+                ("refined_target_date", "TEXT"),
+                ("steps_json", "TEXT"),
+                ("debrief_notes", "TEXT"),
+                ("debrief_json", "TEXT"),
+                ("closed_at", "TEXT"),
+            ]
+            for col_name, col_type in goal_cols:
+                try:
+                    conn.execute(f"ALTER TABLE goals ADD COLUMN {col_name} {col_type}")
+                except sqlite3.OperationalError:
+                    pass
+            conn.execute("INSERT INTO schema_version (version) VALUES (3)")
             conn.commit()
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
@@ -898,6 +926,136 @@ def get_user_activity_stats(user_id: int) -> dict:
             "llm_calls": llm_calls,
             "last_meal_at": last_meal["logged_at"] if last_meal else None,
         }
+    finally:
+        conn.close()
+
+
+# --- Goals DAL helpers ---
+
+def insert_goal_with_plan(
+    user_id: int,
+    raw_input: str,
+    statement: str,
+    why: str,
+    metric: str,
+    target_date: str,
+    steps: list[dict],
+) -> int:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            """INSERT INTO goals
+               (user_id, goal_type, title, start_date, status,
+                raw_input, refined_statement, refined_why, refined_metric,
+                refined_target_date, steps_json)
+               VALUES (?, 'event', ?, ?, 'active', ?, ?, ?, ?, ?, ?)""",
+            (
+                user_id, statement, utcnow(),
+                raw_input, statement, why, metric, target_date,
+                json.dumps(steps),
+            ),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def get_active_goal(user_id: int) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM goals WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1",
+            (user_id,),
+        ).fetchone()
+        if not row:
+            return None
+        g = dict(row)
+        g["steps"] = json.loads(g["steps_json"]) if g.get("steps_json") else []
+        g["debrief"] = json.loads(g["debrief_json"]) if g.get("debrief_json") else None
+        return g
+    finally:
+        conn.close()
+
+
+def get_archived_goals(user_id: int) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM goals WHERE user_id = ? AND status IN ('achieved', 'missed') ORDER BY closed_at DESC",
+            (user_id,),
+        ).fetchall()
+        results = []
+        for row in rows:
+            g = dict(row)
+            g["steps"] = json.loads(g["steps_json"]) if g.get("steps_json") else []
+            g["debrief"] = json.loads(g["debrief_json"]) if g.get("debrief_json") else None
+            results.append(g)
+        return results
+    finally:
+        conn.close()
+
+
+def update_goal_steps(goal_id: int, steps: list[dict]) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE goals SET steps_json = ?, updated_at = ? WHERE goal_id = ?",
+            (json.dumps(steps), utcnow(), goal_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_goal_status(goal_id: int, status: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE goals SET status = ?, closed_at = ?, updated_at = ? WHERE goal_id = ?",
+            (status, utcnow(), utcnow(), goal_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def start_goal_debrief(goal_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE goals SET debrief_notes = '', updated_at = ? WHERE goal_id = ?",
+            (utcnow(), goal_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def save_goal_debrief(goal_id: int, notes: str, debrief_result: dict) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE goals SET debrief_notes = ?, debrief_json = ?, updated_at = ? WHERE goal_id = ?",
+            (notes, json.dumps(debrief_result), utcnow(), goal_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_goal_stats(user_id: int) -> dict:
+    conn = get_connection()
+    try:
+        achieved = conn.execute(
+            "SELECT COUNT(*) as c FROM goals WHERE user_id = ? AND status = 'achieved'",
+            (user_id,),
+        ).fetchone()["c"]
+        missed = conn.execute(
+            "SELECT COUNT(*) as c FROM goals WHERE user_id = ? AND status = 'missed'",
+            (user_id,),
+        ).fetchone()["c"]
+        return {"achieved": achieved, "missed": missed, "total": achieved + missed}
     finally:
         conn.close()
 
