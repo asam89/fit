@@ -1,0 +1,345 @@
+{% extends "base.html" %}
+{% block title %}Goals{% endblock %}
+{% block content %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --canvas:#F4F5F7; --surface:#FFFFFF; --ink:#14161D; --muted:#646B7A; --faint:#9aa1b0;
+    --line:#E6E8EE; --line-2:#EFF1F5;
+    --accent:#2D52F5; --accent-soft:#EEF1FE; --accent-press:#2241cf;
+    --good:#11A36B; --good-soft:#E7F6EF;
+    --miss:#E04338; --warm-soft:#FEF1EC; --amber:#B25410;
+    --r:14px; --r-sm:10px;
+    --display:"Space Grotesk",system-ui,sans-serif;
+    --body-font:"Inter",system-ui,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,monospace;
+  }
+  .goals-wrap{max-width:740px;margin:0 auto;font-family:var(--body-font);-webkit-font-smoothing:antialiased;font-feature-settings:"cv02","cv03","cv04";}
+  .goals-wrap ::selection{background:#cfd9ff}
+  .goals-wrap button{font-family:inherit;cursor:pointer;border:none;background:none}
+  .goals-wrap textarea{font-family:inherit}
+
+  .goals-bar{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:30px}
+  .goals-mark{font-family:var(--display);font-weight:700;font-size:25px;letter-spacing:-.02em}
+  .goals-mark .dot{color:var(--accent)}
+  .goals-mark .io{color:var(--faint);font-weight:500}
+  .goals-tag{font-size:12.5px;color:var(--muted)}
+  .goals-tag b{color:var(--ink);font-variant-numeric:tabular-nums}
+
+  .g-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+    box-shadow:0 1px 2px rgba(20,22,29,.03),0 8px 24px -18px rgba(20,22,29,.18)}
+  .g-pad{padding:22px}
+
+  .g-eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+
+  .g-composer .g-lead{font-family:var(--display);font-size:21px;font-weight:600;letter-spacing:-.01em;margin:8px 0 16px}
+  textarea.g-goal{width:100%;min-height:84px;resize:vertical;border:1px solid var(--line);border-radius:var(--r-sm);
+    padding:13px 14px;font-size:15.5px;line-height:1.5;color:var(--ink);background:#fff;outline:none;transition:border-color .15s, box-shadow .15s}
+  textarea.g-goal::placeholder{color:var(--faint)}
+  textarea.g-goal:focus{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+  .g-composer-row{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:14px}
+  .g-hint{font-size:12.5px;color:var(--muted)}
+
+  .g-btn{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:14px;border-radius:10px;
+    padding:11px 17px;transition:background .15s, transform .05s, opacity .15s}
+  .g-btn:active{transform:translateY(1px)}
+  .g-btn-primary{background:var(--accent);color:#fff}
+  .g-btn-primary:hover{background:var(--accent-press)}
+  .g-btn-primary:disabled{opacity:.5;cursor:default}
+  .g-btn-ghost{color:var(--muted);padding:9px 12px}
+  .g-btn-ghost:hover{color:var(--ink);background:var(--line-2)}
+  .g-btn-good{background:var(--good);color:#fff}
+  .g-btn-good:hover{filter:brightness(.96)}
+  .g-btn-miss{color:var(--miss);border:1px solid var(--line);background:#fff}
+  .g-btn-miss:hover{border-color:var(--miss);background:var(--warm-soft)}
+
+  .g-spin{width:15px;height:15px;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;
+    animation:g-sp .7s linear infinite;display:inline-block}
+  @keyframes g-sp{to{transform:rotate(360deg)}}
+
+  .g-statement{font-family:var(--display);font-size:23px;line-height:1.22;font-weight:600;letter-spacing:-.015em;margin:0 0 10px}
+  .g-why{font-size:14.5px;color:var(--muted);line-height:1.5;margin:0 0 18px;max-width:54ch}
+  .g-meta{display:flex;gap:26px;flex-wrap:wrap;padding:14px 0 18px;border-top:1px solid var(--line-2);border-bottom:1px solid var(--line-2);margin-bottom:18px}
+  .g-meta .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-bottom:5px}
+  .g-meta .v{font-size:14px;font-weight:500}
+  .g-meta .v.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  .g-traj{margin:4px 0 22px}
+  .g-traj-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}
+  .g-traj-head .pct{font-family:var(--mono);font-size:13px;color:var(--accent);font-weight:500}
+  .g-track{position:relative;height:6px;border-radius:6px;background:var(--line)}
+  .g-track .g-fill{position:absolute;left:0;top:0;bottom:0;border-radius:6px;background:var(--accent);transition:width .4s cubic-bezier(.2,.7,.2,1)}
+
+  .g-step{display:flex;gap:13px;align-items:flex-start;padding:12px 0;border-top:1px solid var(--line-2)}
+  .g-step:first-child{border-top:none}
+  .g-step .ix{font-family:var(--mono);font-size:11px;color:var(--faint);width:20px;flex:none;padding-top:3px}
+  .g-check{width:21px;height:21px;flex:none;border-radius:6px;border:1.5px solid var(--line);background:#fff;
+    display:grid;place-items:center;margin-top:1px;transition:all .15s}
+  .g-check:hover{border-color:var(--accent)}
+  .g-check.on{background:var(--accent);border-color:var(--accent)}
+  .g-check svg{opacity:0;transition:opacity .12s}
+  .g-check.on svg{opacity:1}
+  .g-step .txt{font-size:14.5px;line-height:1.45;padding-top:1px}
+  .g-step.done .txt{color:var(--faint);text-decoration:line-through;text-decoration-color:var(--line)}
+
+  .g-actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+
+  .g-debrief{background:var(--warm-soft);border-color:#F6D8C6}
+  .g-debrief .g-eyebrow{color:var(--amber)}
+  .g-debrief textarea.g-goal{border-color:#F0C9B3;background:#fffaf7}
+  .g-debrief textarea.g-goal:focus{border-color:var(--amber);box-shadow:0 0 0 4px #fae6d8}
+  .g-intro-block{margin-top:18px}
+  .g-intro-h{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber);margin:18px 0 9px}
+  .g-intro-li{display:flex;gap:10px;font-size:14.5px;line-height:1.5;padding:6px 0;color:#3a2a20}
+  .g-intro-li .b{color:var(--amber);flex:none;font-weight:600}
+  .g-nextmove{background:#fff;border:1px solid #F0C9B3;border-radius:var(--r-sm);padding:14px 15px;margin-top:14px;font-size:14.5px;line-height:1.5}
+  .g-nextmove .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber);display:block;margin-bottom:6px}
+
+  .g-arch-head{display:flex;align-items:center;gap:10px;margin:34px 4px 14px}
+  .g-arch-head .ln{flex:1;height:1px;background:var(--line)}
+  .g-arch-item{display:flex;align-items:center;gap:13px;padding:14px 16px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface);margin-bottom:9px;cursor:pointer;transition:border-color .15s,background .15s}
+  .g-arch-item:hover{border-color:#d7dbe6;background:#fff}
+  .g-chip{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:4px 8px;border-radius:20px;flex:none}
+  .g-chip.good{background:var(--good-soft);color:var(--good)}
+  .g-chip.miss{background:var(--warm-soft);color:var(--miss)}
+  .g-arch-item .t{font-size:14px;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .g-arch-item .d{font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .g-arch-detail{font-size:13.5px;color:var(--muted);line-height:1.55;padding:2px 16px 14px;margin:-6px 0 9px;border:1px solid var(--line);border-top:none;border-radius:0 0 var(--r-sm) var(--r-sm)}
+
+  @media (max-width:560px){
+    .goals-wrap{padding:0}
+    .g-statement{font-size:20px}
+    .g-meta{gap:18px}
+  }
+  @media (prefers-reduced-motion:reduce){.goals-wrap *{transition:none!important;animation:none!important}}
+</style>
+
+<div class="goals-wrap">
+  <div class="goals-bar">
+    <div class="goals-mark">fit<span class="dot">.</span><span class="io">io</span></div>
+    <div class="goals-tag" id="goalTag">
+      <b>{{ stats.achieved }}</b> done · <b>{{ stats.missed }}</b> missed · <b>{{ stats.total }}</b> total
+    </div>
+  </div>
+  <div id="goalApp"></div>
+</div>
+
+<script>
+const GOAL_STATE = {{ active_goal | tojson if active_goal else 'null' }};
+const ARCHIVED = {{ archived_goals | tojson }};
+
+const esc = s => (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const app = document.getElementById("goalApp");
+
+async function api(path, body){
+  const r = await fetch("/goals/api/" + path, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  });
+  if(!r.ok){
+    const e = await r.json().catch(()=>({}));
+    throw new Error(e.error || "Request failed");
+  }
+  return r.json();
+}
+
+function render(){
+  let html = "";
+  html += GOAL_STATE ? activeView(GOAL_STATE) : composerView();
+  html += archiveView(ARCHIVED);
+  app.innerHTML = html;
+  wire();
+}
+
+function composerView(){
+  return `
+  <div class="g-card g-pad g-composer">
+    <div class="g-eyebrow">Next goal</div>
+    <div class="g-lead">What's the next thing you're chasing?</div>
+    <textarea class="g-goal" id="goalInput" placeholder="e.g. Run a sub-25 5K · lose 8 lb of fat · bench my bodyweight · 3 gym sessions a week for a month"></textarea>
+    <div class="g-composer-row">
+      <span class="g-hint">Claude drafts a measurable goal and the steps to get there.</span>
+      <button class="g-btn g-btn-primary" id="buildBtn">Build the plan</button>
+    </div>
+  </div>`;
+}
+
+function activeView(g){
+  if(g.debrief_notes !== null && g.debrief_notes !== undefined && g.status === "active"){
+    return debriefView(g);
+  }
+  const steps = g.steps || [];
+  const done = steps.filter(s=>s.done).length;
+  const pct = steps.length ? Math.round(done/steps.length*100) : 0;
+  const created = g.created_at ? new Date(g.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}) : '';
+
+  const stepsHtml = steps.map((s,i)=>`
+    <div class="g-step ${s.done?'done':''}" data-step="${s.id}">
+      <span class="ix">${String(i+1).padStart(2,"0")}</span>
+      <button class="g-check ${s.done?'on':''}" data-check="${s.id}" aria-label="toggle step">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6.2L4.7 9 10 3" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="txt">${esc(s.text)}</div>
+    </div>`).join("");
+
+  return `
+  <div class="g-card g-pad">
+    <div class="g-eyebrow">Active goal</div>
+    <h1 class="g-statement" style="margin-top:8px">${esc(g.refined_statement)}</h1>
+    <p class="g-why">${esc(g.refined_why)}</p>
+    <div class="g-meta">
+      <div><div class="k">Target</div><div class="v mono">${esc(g.refined_target_date)}</div></div>
+      <div><div class="k">Success metric</div><div class="v">${esc(g.refined_metric)}</div></div>
+      <div><div class="k">Set</div><div class="v mono">${created}</div></div>
+    </div>
+
+    <div class="g-traj">
+      <div class="g-traj-head"><span class="g-eyebrow">Trajectory</span><span class="pct">${done}/${steps.length} · ${pct}%</span></div>
+      <div class="g-track"><div class="g-fill" style="width:${pct}%"></div></div>
+    </div>
+
+    <div class="g-steps">${stepsHtml}</div>
+
+    <div class="g-actions">
+      <button class="g-btn g-btn-good" id="achieveBtn">Mark as achieved</button>
+      <button class="g-btn g-btn-miss" id="missBtn">I missed this</button>
+    </div>
+  </div>`;
+}
+
+function debriefView(g){
+  const intro = g.debrief;
+  const introHtml = intro ? `
+    <div class="g-intro-block">
+      <div class="g-intro-h">Why it slipped</div>
+      ${intro.reasons.map(x=>`<div class="g-intro-li"><span class="b">—</span><span>${esc(x)}</span></div>`).join("")}
+      <div class="g-intro-h">What to change</div>
+      ${intro.improvements.map(x=>`<div class="g-intro-li"><span class="b">→</span><span>${esc(x)}</span></div>`).join("")}
+      <div class="g-nextmove"><span class="k">Next move this week</span>${esc(intro.nextMove)}</div>
+      <div class="g-actions">
+        <button class="g-btn g-btn-primary" id="reviseBtn">Draft a revised goal</button>
+        <button class="g-btn g-btn-ghost" id="archiveMissBtn">Archive &amp; move on</button>
+      </div>
+    </div>` : `
+    <textarea class="g-goal" id="debriefNotes" placeholder="What actually got in the way? Be honest — travel, motivation dipped, plan too aggressive, life got busy…"></textarea>
+    <div class="g-composer-row">
+      <span class="g-hint">Claude runs an honest post-mortem and a plan to fix it.</span>
+      <button class="g-btn g-btn-primary" id="runIntroBtn">Run the debrief</button>
+    </div>`;
+
+  return `
+  <div class="g-card g-pad g-debrief">
+    <div class="g-eyebrow">Debrief — missed goal</div>
+    <h1 class="g-statement" style="margin-top:8px;font-size:20px">${esc(g.refined_statement)}</h1>
+    ${introHtml}
+  </div>`;
+}
+
+function archiveView(arch){
+  if(!arch.length) return "";
+  const items = arch.map(g=>{
+    const cls = g.status==="achieved"?"good":"miss";
+    const label = g.status==="achieved"?"done":"missed";
+    const dateStr = g.closed_at ? new Date(g.closed_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}) : '';
+    const detail = g.debrief ? `<div class="g-arch-detail" id="ad-${g.goal_id}" hidden><b style="color:var(--amber)">Next move:</b> ${esc(g.debrief.nextMove)}</div>`:"";
+    return `
+      <div class="g-arch-item" data-arch="${g.goal_id}">
+        <span class="g-chip ${cls}">${label}</span>
+        <span class="t">${esc(g.refined_statement || g.title || '')}</span>
+        <span class="d">${dateStr}</span>
+      </div>${detail}`;
+  }).join("");
+  return `
+    <div class="g-arch-head"><span class="g-eyebrow">History</span><span class="ln"></span></div>
+    ${items}`;
+}
+
+function wire(){
+  const buildBtn = document.getElementById("buildBtn");
+  if(buildBtn){
+    buildBtn.onclick = async ()=>{
+      const v = document.getElementById("goalInput").value.trim();
+      if(!v) return;
+      buildBtn.disabled = true;
+      buildBtn.innerHTML = `<span class="g-spin"></span> Drafting`;
+      try{
+        const data = await api("build-plan", {text: v});
+        window.location.reload();
+      }catch(e){
+        buildBtn.disabled=false; buildBtn.textContent="Try again";
+        const h=document.querySelector(".g-composer .g-hint");
+        if(h){h.textContent="Couldn't reach the planner — try once more."; h.style.color="var(--miss)";}
+      }
+    };
+  }
+
+  document.querySelectorAll("[data-check]").forEach(b=>{
+    b.onclick = async ()=>{
+      const stepId = b.getAttribute("data-check");
+      try{
+        const data = await api("toggle-step", {goal_id: GOAL_STATE.goal_id, step_id: stepId});
+        GOAL_STATE.steps = data.steps;
+        render();
+      }catch(e){ console.error(e); }
+    };
+  });
+
+  const achieve = document.getElementById("achieveBtn");
+  if(achieve) achieve.onclick = async ()=>{
+    await api("achieve", {goal_id: GOAL_STATE.goal_id});
+    window.location.reload();
+  };
+
+  const miss = document.getElementById("missBtn");
+  if(miss) miss.onclick = async ()=>{
+    await api("miss", {goal_id: GOAL_STATE.goal_id});
+    GOAL_STATE.debrief_notes = "";
+    GOAL_STATE.debrief = null;
+    render();
+  };
+
+  const runIntro = document.getElementById("runIntroBtn");
+  if(runIntro){
+    runIntro.onclick = async ()=>{
+      const notes = (document.getElementById("debriefNotes").value||"").trim();
+      runIntro.disabled=true; runIntro.innerHTML=`<span class="g-spin"></span> Thinking`;
+      try{
+        const data = await api("debrief", {goal_id: GOAL_STATE.goal_id, notes});
+        GOAL_STATE.debrief = data.debrief;
+        render();
+      }catch(e){
+        runIntro.disabled=false; runIntro.textContent="Try again";
+      }
+    };
+  }
+
+  const archiveMiss = document.getElementById("archiveMissBtn");
+  if(archiveMiss) archiveMiss.onclick = async ()=>{
+    await api("archive-miss", {goal_id: GOAL_STATE.goal_id});
+    window.location.reload();
+  };
+
+  const revise = document.getElementById("reviseBtn");
+  if(revise) revise.onclick = async ()=>{
+    const rawInput = GOAL_STATE.raw_input || '';
+    await api("archive-miss", {goal_id: GOAL_STATE.goal_id});
+    GOAL_STATE = null;
+    render();
+    setTimeout(()=>{
+      const ta = document.getElementById("goalInput");
+      if(ta){ ta.value = rawInput; ta.focus(); window.scrollTo({top:0,behavior:"smooth"}); }
+    }, 50);
+  };
+
+  document.querySelectorAll("[data-arch]").forEach(it=>{
+    it.onclick=()=>{ const d=document.getElementById("ad-"+it.getAttribute("data-arch")); if(d) d.hidden=!d.hidden; };
+  });
+}
+
+render();
+</script>
+{% endblock %}
