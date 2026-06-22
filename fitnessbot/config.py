@@ -38,6 +38,7 @@ class Config:
     # --- AI Models ---
     ANALYSIS_MODEL: str = os.getenv("ANALYSIS_MODEL", "claude-sonnet-4-6")
     ROUTER_MODEL: str = os.getenv("ROUTER_MODEL", "claude-sonnet-4-6")
+    WHISPER_MODEL_SIZE: str = os.getenv("WHISPER_MODEL_SIZE", "base")
 
     # --- Admin ---
     SUPER_ADMIN_EMAIL: str = os.getenv("SUPER_ADMIN_EMAIL", "alexsam89@gmail.com")
