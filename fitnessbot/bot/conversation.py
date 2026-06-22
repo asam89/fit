@@ -56,6 +56,10 @@ _SLEEP_PAT = re.compile(r"^(?:slept?|sleep)\s+([\d.]+)\s*(?:h(?:ours?)?|hrs?)?$"
 _RHR_PAT = re.compile(r"^(?:rhr|resting\s*(?:hr|heart\s*rate))\s+([\d]+)$", re.I)
 _HYDRATION_PAT = re.compile(r"^(?:drank|water|hydration)\s+([\d.]+)\s*(?:glasses?|liters?|litres?|cups?|oz)?$", re.I)
 _BARE_NUMBER = re.compile(r"^[\d.]+$")
+_QUERY_PAT = re.compile(
+    r"(?:how(?:\'s| is| has| have| am| was| were| did))|(?:what(?:\'s| is| are| was| were))|(?:show me|tell me|give me|summary|report|recap|review)",
+    re.I,
+)
 
 
 def _fast_path_intents(text: str, pending: dict | None) -> list[dict] | None:
@@ -92,6 +96,13 @@ def _fast_path_intents(text: str, pending: dict | None) -> list[dict] | None:
     lower = stripped.lower()
     if lower.startswith(("i ate ", "i had ", "just had ", "just ate ", "for breakfast ", "for lunch ", "for dinner ", "for snack ")):
         return [{"type": "meal_log", "items": [], "raw_text": stripped, "confidence": 0.95}]
+
+    if _QUERY_PAT.search(stripped) and any(kw in lower for kw in (
+        "fitness", "diet", "weight", "calories", "macro", "protein", "training",
+        "workout", "sleep", "progress", "doing", "going", "week", "month",
+        "today", "nutrition", "eating", "health", "plan", "adherence",
+    )):
+        return [{"type": "query", "question": stripped, "confidence": 0.95}]
 
     return None
 
@@ -157,7 +168,7 @@ def _act_on_intents(intents: list[dict], user_id: int, raw_text: str) -> list[di
             elif itype == "plan_complete":
                 r = _act_plan_complete(intent, user_id)
             elif itype == "query":
-                r = _act_query(user_id)
+                r = _act_query(user_id, intent.get("question", ""))
             elif itype == "correction":
                 r = _act_correction(intent, user_id, units_pref)
             else:
@@ -306,20 +317,44 @@ def _act_plan_complete(intent: dict, user_id: int) -> dict:
     }
 
 
-def _act_query(user_id: int) -> dict:
+def _act_query(user_id: int, question: str = "") -> dict:
     from fitnessbot.nutrition import get_nutrition_targets
+    from fitnessbot import training_plan
+
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     totals = db.get_today_totals(user_id, today)
     targets = get_nutrition_targets(user_id)
     weight = get_weight_summary(user_id)
     meal_count = db.get_meal_count_today(user_id, today)
 
+    lower_q = question.lower()
+    is_week = any(w in lower_q for w in ("week", "7 day", "last 7", "this week", "past week"))
+    is_month = any(w in lower_q for w in ("month", "30 day", "last 30", "this month", "past month"))
+    lookback = 30 if is_month else 7
+
+    macro_hist = db.get_macro_history(user_id, lookback)
+    sleep_hist = db.get_sleep_history(user_id, lookback)
+    workout_hist = db.get_workout_history(user_id, lookback)
+    weight_hist = db.get_weight_history(user_id, limit=lookback)
+
+    ws = training_plan._monday_of_week(datetime.now(timezone.utc).date())
+    plan_items = training_plan.get_plan_items(user_id, ws)
+    adherence = training_plan.compute_adherence(plan_items) if plan_items else None
+
     return {
         "action": "query",
+        "question": question,
         "totals": totals,
         "targets": targets,
         "weight": weight,
         "meal_count": meal_count,
+        "macro_history": macro_hist,
+        "sleep_history": sleep_hist,
+        "workout_history": workout_hist,
+        "weight_history": weight_hist,
+        "plan_items": plan_items,
+        "adherence": adherence,
+        "lookback_days": lookback,
     }
 
 
@@ -407,6 +442,142 @@ def _get_food_suggestions(targets: dict, totals: dict) -> str:
     return "\n".join(suggestions)
 
 
+QUERY_RESPOND_SYSTEM = """You are a fitness coaching assistant answering a question about the user's data. You have their actual logged data below.
+
+Rules:
+- Answer based ONLY on the data provided — never invent numbers
+- Be specific: reference actual numbers, dates, and trends from the data
+- Plain, honest, lightly motivating tone
+- If data is missing, say so ("no meals logged on Tuesday" rather than making up numbers)
+- Keep it concise: 4-8 lines max
+- Include a practical insight or suggestion based on what you see
+- For diet questions: cover calories, protein, consistency
+- For fitness questions: cover workouts, training plan adherence, activity
+- For general "how am I doing": cover both diet + fitness
+- Numbers from the data context are ground truth — NEVER hallucinate different numbers"""
+
+
+def _build_query_context(act_result: dict) -> str:
+    """Build a rich data context for answering user queries."""
+    lines = []
+    targets = act_result.get("targets", {})
+    lookback = act_result.get("lookback_days", 7)
+    period = f"last {lookback} days"
+
+    lines.append(f"PERIOD: {period}")
+    lines.append(f"TARGETS: {targets.get('calories', 0)} cal, {targets.get('protein', 0)}g P, {targets.get('carbs', 0)}g C, {targets.get('fat', 0)}g F")
+
+    # Today
+    totals = act_result.get("totals", {})
+    lines.append(f"\nTODAY: {totals.get('calories', 0):.0f} cal, {totals.get('protein', 0):.0f}g P, {totals.get('carbs', 0):.0f}g C, {totals.get('fat', 0):.0f}g F | {act_result.get('meal_count', 0)} meals")
+
+    # Macro history
+    macro_hist = act_result.get("macro_history", [])
+    if macro_hist:
+        lines.append(f"\nDIET HISTORY ({len(macro_hist)} days logged):")
+        total_cal = sum(d.get("calories", 0) or 0 for d in macro_hist)
+        total_pro = sum(d.get("protein", 0) or 0 for d in macro_hist)
+        avg_cal = total_cal / len(macro_hist) if macro_hist else 0
+        avg_pro = total_pro / len(macro_hist) if macro_hist else 0
+        lines.append(f"  Avg: {avg_cal:.0f} cal/day, {avg_pro:.0f}g protein/day")
+        on_target_cal = sum(1 for d in macro_hist if abs((d.get("calories", 0) or 0) - targets.get("calories", 0)) < targets.get("calories", 2000) * 0.1)
+        on_target_pro = sum(1 for d in macro_hist if (d.get("protein", 0) or 0) >= targets.get("protein", 0) * 0.9)
+        lines.append(f"  Calories on target: {on_target_cal}/{len(macro_hist)} days")
+        lines.append(f"  Protein hit: {on_target_pro}/{len(macro_hist)} days")
+        for d in macro_hist[-7:]:
+            lines.append(f"  {d['date']}: {(d.get('calories') or 0):.0f} cal, {(d.get('protein') or 0):.0f}g P, {d.get('meal_count', 0)} meals")
+    else:
+        lines.append(f"\nDIET HISTORY: No meals logged in the {period}")
+
+    # Weight
+    weight = act_result.get("weight", {})
+    if weight.get("has_data"):
+        lines.append(f"\nWEIGHT: {weight.get('current_smoothed', '?')} lbs (smoothed)")
+        if weight.get("trend_7d") is not None:
+            direction = "down" if weight["trend_7d"] < 0 else "up"
+            lines.append(f"  7d trend: {abs(weight['trend_7d']):.1f} lbs {direction}")
+        if weight.get("trend_30d") is not None:
+            direction = "down" if weight["trend_30d"] < 0 else "up"
+            lines.append(f"  30d trend: {abs(weight['trend_30d']):.1f} lbs {direction}")
+    else:
+        lines.append("\nWEIGHT: No weight data logged")
+
+    # Workouts
+    workout_hist = act_result.get("workout_history", [])
+    if workout_hist:
+        lines.append(f"\nWORKOUTS ({len(workout_hist)} sessions):")
+        for w in workout_hist[-7:]:
+            dur = w.get("duration_min", "?")
+            lines.append(f"  {w.get('date', '?')}: {w.get('type', w.get('activity', 'workout'))} {dur}min")
+    else:
+        lines.append(f"\nWORKOUTS: None logged in {period}")
+
+    # Training plan adherence
+    adherence = act_result.get("adherence")
+    plan_items = act_result.get("plan_items", [])
+    if adherence:
+        lines.append(f"\nTRAINING PLAN: {adherence.get('label', '?')}")
+        completed = [i for i in plan_items if i.get("status") == "completed" or i.get("display_status") == "completed"]
+        missed = [i for i in plan_items if i.get("display_status") == "missed"]
+        if completed:
+            lines.append(f"  Completed: {', '.join(i['title'] for i in completed)}")
+        if missed:
+            lines.append(f"  Missed: {', '.join(i['title'] for i in missed)}")
+
+    # Sleep
+    sleep_hist = act_result.get("sleep_history", [])
+    if sleep_hist:
+        sleep_hours = [s.get("hours", 0) for s in sleep_hist if s.get("hours")]
+        if sleep_hours:
+            avg_sleep = sum(sleep_hours) / len(sleep_hours)
+            lines.append(f"\nSLEEP: avg {avg_sleep:.1f}h ({len(sleep_hours)} nights logged)")
+    else:
+        lines.append(f"\nSLEEP: Not tracked in {period}")
+
+    return "\n".join(lines)
+
+
+def _deterministic_query_response(act_result: dict) -> str:
+    """Build a deterministic query response without LLM."""
+    lines = []
+    targets = act_result.get("targets", {})
+    lookback = act_result.get("lookback_days", 7)
+    period_label = "this week" if lookback <= 7 else "this month"
+
+    macro_hist = act_result.get("macro_history", [])
+    if macro_hist:
+        total_cal = sum(d.get("calories", 0) or 0 for d in macro_hist)
+        total_pro = sum(d.get("protein", 0) or 0 for d in macro_hist)
+        avg_cal = total_cal / len(macro_hist)
+        avg_pro = total_pro / len(macro_hist)
+        on_target_pro = sum(1 for d in macro_hist if (d.get("protein", 0) or 0) >= targets.get("protein", 0) * 0.9)
+        lines.append(f"Diet ({period_label}): avg {avg_cal:.0f} cal/day (target {targets.get('calories', 0)}), {avg_pro:.0f}g protein/day. Hit protein {on_target_pro}/{len(macro_hist)} days.")
+    else:
+        lines.append(f"Diet: No meals logged {period_label}.")
+
+    weight = act_result.get("weight", {})
+    if weight.get("has_data"):
+        w_line = f"Weight: {weight.get('current_smoothed', '?')} lbs"
+        if weight.get("trend_7d") is not None:
+            direction = "down" if weight["trend_7d"] < 0 else "up"
+            w_line += f" ({abs(weight['trend_7d']):.1f} {direction} over 7d)"
+        lines.append(w_line)
+
+    workout_hist = act_result.get("workout_history", [])
+    lines.append(f"Workouts: {len(workout_hist)} sessions {period_label}.")
+
+    adherence = act_result.get("adherence")
+    if adherence:
+        lines.append(f"Training plan: {adherence.get('label', '?')}.")
+
+    sleep_hist = act_result.get("sleep_history", [])
+    sleep_hours = [s.get("hours", 0) for s in sleep_hist if s.get("hours")]
+    if sleep_hours:
+        lines.append(f"Sleep: avg {sum(sleep_hours)/len(sleep_hours):.1f}h over {len(sleep_hours)} nights.")
+
+    return "\n".join(lines) if lines else "I don't have enough data to answer that yet. Log some meals, workouts, or weight and I'll be able to tell you more."
+
+
 def _build_context_digest(user_id: int, act_results: list[dict]) -> str:
     from fitnessbot.nutrition import get_nutrition_targets
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -486,13 +657,7 @@ def _deterministic_confirmation(act_results: list[dict], user_id: int) -> str:
         elif action == "parse_failed":
             parts.append("Couldn't parse that meal. Try being more specific.")
         elif action == "query":
-            t = r["totals"]
-            tg = r["targets"]
-            parts.append(f"{t['calories']:.0f}/{tg['calories']} cal, {t['protein']:.0f}/{tg['protein']}g P, {t['carbs']:.0f}/{tg['carbs']}g C, {t['fat']:.0f}/{tg['fat']}g F.")
-            food_hints = _get_food_suggestions(tg, t)
-            if food_hints:
-                for line in food_hints.split("\n"):
-                    parts.append(line)
+            parts.append(_deterministic_query_response(r))
         elif action == "error":
             parts.append(f"Error: {r.get('error', 'unknown')}")
         else:
@@ -508,21 +673,33 @@ def _generate_coaching_reply(user_id: int, raw_text: str, act_results: list[dict
     """Generate an LLM coaching reply. Returns (reply_text, token_usage)."""
     from fitnessbot.inference.factory import get_inference
 
-    digest = _build_context_digest(user_id, act_results)
+    # Use dedicated query path for data questions
+    query_results = [r for r in act_results if r.get("action") == "query"]
+    if query_results:
+        qr = query_results[0]
+        digest = _build_query_context(qr)
+        system = QUERY_RESPOND_SYSTEM
+        prompt = f"User asked: \"{qr.get('question', raw_text)}\"\n\n{digest}"
+        fallback_fn = lambda: _deterministic_query_response(qr)
+    else:
+        digest = _build_context_digest(user_id, act_results)
+        system = RESPOND_SYSTEM
+        prompt = f"User said: \"{raw_text}\"\n\n{digest}"
+        fallback_fn = lambda: _deterministic_confirmation(act_results, user_id)
 
     try:
         infer = get_inference(user_id)
         result = infer(
-            system=RESPOND_SYSTEM,
-            messages=[{"role": "user", "content": f"User said: \"{raw_text}\"\n\n{digest}"}],
-            max_tokens=250,
+            system=system,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=400 if query_results else 250,
         )
         return result["text"].strip(), {"input_tokens": result.get("input_tokens", 0), "output_tokens": result.get("output_tokens", 0)}
     except InferenceError:
-        return _deterministic_confirmation(act_results, user_id), {"input_tokens": 0, "output_tokens": 0}
+        return fallback_fn(), {"input_tokens": 0, "output_tokens": 0}
     except Exception as e:
         logger.error("Coaching reply failed: %s", e)
-        return _deterministic_confirmation(act_results, user_id), {"input_tokens": 0, "output_tokens": 0}
+        return fallback_fn(), {"input_tokens": 0, "output_tokens": 0}
 
 
 # --- main loop ---

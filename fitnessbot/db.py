@@ -1845,6 +1845,70 @@ def get_health_data_today(user_id: int, date_str: str, data_type: str) -> list[d
         conn.close()
 
 
+def get_macro_history(user_id: int, days: int = 7) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT DATE(logged_at) as date,
+                      SUM(total_calories) as calories,
+                      SUM(total_protein) as protein,
+                      SUM(total_carbs) as carbs,
+                      SUM(total_fat) as fat,
+                      COUNT(*) as meal_count
+               FROM meals WHERE user_id = ?
+               AND DATE(logged_at) >= date('now', ?)
+               GROUP BY DATE(logged_at)
+               ORDER BY date ASC""",
+            (user_id, f"-{days} days"),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_sleep_history(user_id: int, days: int = 7) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT DATE(recorded_at) as date, data_json
+               FROM health_data WHERE user_id = ? AND data_type = 'sleep'
+               AND DATE(recorded_at) >= date('now', ?)
+               ORDER BY date ASC""",
+            (user_id, f"-{days} days"),
+        ).fetchall()
+        result = []
+        for r in rows:
+            import json as _json
+            d = _json.loads(r["data_json"]) if r["data_json"] else {}
+            d["date"] = r["date"]
+            result.append(d)
+        return result
+    finally:
+        conn.close()
+
+
+def get_workout_history(user_id: int, days: int = 7) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT DATE(recorded_at) as date, data_json, notes
+               FROM health_data WHERE user_id = ? AND data_type = 'workout'
+               AND DATE(recorded_at) >= date('now', ?)
+               ORDER BY date ASC""",
+            (user_id, f"-{days} days"),
+        ).fetchall()
+        result = []
+        for r in rows:
+            import json as _json
+            d = _json.loads(r["data_json"]) if r["data_json"] else {}
+            d["date"] = r["date"]
+            d["notes"] = r["notes"]
+            result.append(d)
+        return result
+    finally:
+        conn.close()
+
+
 def get_workout_count_range(user_id: int, days: int) -> int:
     conn = get_connection()
     try:
