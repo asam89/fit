@@ -1,38 +1,47 @@
-"""Claude-powered meal text -> structured nutritional breakdown."""
+"""Meal text -> structured nutritional breakdown via provider abstraction."""
 
 import json
 import logging
 import time
 
-import anthropic
-
 from fitnessbot.config import Config
 from fitnessbot import db
 from fitnessbot.ai.prompts import FOOD_PARSE_SYSTEM, FOOD_PARSE_USER
+from fitnessbot.inference.base import InferenceError
 
 logger = logging.getLogger(__name__)
 
 
-def _get_client() -> anthropic.Anthropic:
-    return anthropic.Anthropic(api_key=Config.ANTHROPIC_API_KEY)
+def parse_meal(text: str, units_pref: str = "imperial", user_id: int | None = None) -> list[dict]:
+    """Parse a natural-language meal description into structured food items."""
+    from fitnessbot.inference.factory import get_inference, get_inference_for_system
 
-
-def parse_meal(text: str, units_pref: str = "imperial") -> list[dict]:
-    """Parse a natural-language meal description into structured food items via Claude."""
-    client = _get_client()
     user_prompt = FOOD_PARSE_USER.format(text=text, units_pref=units_pref)
 
-    start = time.time()
-    response = client.messages.create(
-        model=Config.ROUTER_MODEL,
-        max_tokens=1500,
-        system=FOOD_PARSE_SYSTEM,
-        messages=[{"role": "user", "content": user_prompt}],
-    )
-    latency_ms = (time.time() - start) * 1000
+    try:
+        if user_id:
+            infer = get_inference(user_id)
+        else:
+            infer = get_inference_for_system()
+    except InferenceError:
+        logger.warning("No inference available for meal parsing (user_id=%s)", user_id)
+        return []
 
-    raw_text = response.content[0].text.strip()
-    # Strip markdown fences if present
+    start = time.time()
+    try:
+        result = infer(
+            system=FOOD_PARSE_SYSTEM,
+            messages=[{"role": "user", "content": user_prompt}],
+            max_tokens=1500,
+            json_mode=True,
+        )
+    except InferenceError as e:
+        logger.error("Meal parse inference failed: %s", e)
+        return []
+
+    latency_ms = (time.time() - start) * 1000
+    raw_text = result["text"]
+
     if raw_text.startswith("```"):
         raw_text = raw_text.split("\n", 1)[1] if "\n" in raw_text else raw_text[3:]
         if raw_text.endswith("```"):
@@ -42,19 +51,19 @@ def parse_meal(text: str, units_pref: str = "imperial") -> list[dict]:
     try:
         items = json.loads(raw_text)
     except json.JSONDecodeError:
-        logger.error("Failed to parse Claude food response: %s", raw_text)
+        logger.error("Failed to parse food response: %s", raw_text[:200])
         items = []
 
-    # Log the LLM call
     try:
         db.insert_llm_analysis(
             kind="food_parse",
-            model=Config.ROUTER_MODEL,
+            model="provider",
             input_digest=text[:200],
             output_text=raw_text[:500],
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
+            input_tokens=result.get("input_tokens", 0),
+            output_tokens=result.get("output_tokens", 0),
             latency_ms=latency_ms,
+            user_id=user_id,
         )
     except Exception as e:
         logger.warning("Failed to log LLM analysis: %s", e)
@@ -102,7 +111,7 @@ def log_meal_from_parsed(
             sodium=item.get("sodium", 0),
             serving_qty=item.get("qty"),
             serving_unit=item.get("unit"),
-            source="claude",
+            source="ai",
             claude_confidence=item.get("confidence"),
         )
         db.insert_meal_item(
@@ -128,7 +137,6 @@ def log_meal_from_parsed(
 
 
 def _infer_meal_type() -> str:
-    """Infer meal type from current time of day."""
     from datetime import datetime
     import pytz
 

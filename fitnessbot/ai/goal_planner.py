@@ -1,13 +1,11 @@
-"""Claude-powered goal planning and debrief."""
+"""Goal planning and debrief via provider abstraction."""
 
 import json
 import logging
 import time
 
-import anthropic
-
-from fitnessbot.config import Config
 from fitnessbot import db
+from fitnessbot.inference.base import InferenceError
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +26,6 @@ Return ONLY a JSON object, no markdown fences, with these keys:
 "nextMove": one single sentence — the very next action to take this week."""
 
 
-def _get_client() -> anthropic.Anthropic:
-    return anthropic.Anthropic(api_key=Config.ANTHROPIC_API_KEY)
-
-
 def _parse_json(text: str) -> dict:
     cleaned = text.replace("```json", "").replace("```", "").strip()
     start = cleaned.find("{")
@@ -42,25 +36,31 @@ def _parse_json(text: str) -> dict:
 
 
 def build_plan(raw_text: str, user_id: int | None = None) -> dict:
-    client = _get_client()
+    from fitnessbot.inference.factory import get_inference, get_inference_for_system
+
+    try:
+        infer = get_inference(user_id) if user_id else get_inference_for_system()
+    except InferenceError as e:
+        raise InferenceError(f"Cannot build goal plan: {e}")
+
     start = time.time()
-    response = client.messages.create(
-        model=Config.ANALYSIS_MODEL,
-        max_tokens=1000,
+    result = infer(
         system=PLAN_SYSTEM,
         messages=[{"role": "user", "content": raw_text}],
+        max_tokens=1000,
+        json_mode=True,
     )
     latency_ms = (time.time() - start) * 1000
-    raw_output = response.content[0].text.strip()
+    raw_output = result["text"]
 
     try:
         db.insert_llm_analysis(
             kind="goal_plan",
-            model=Config.ANALYSIS_MODEL,
+            model="provider",
             input_digest=raw_text[:200],
             output_text=raw_output[:500],
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
+            input_tokens=result.get("input_tokens", 0),
+            output_tokens=result.get("output_tokens", 0),
             latency_ms=latency_ms,
             user_id=user_id,
         )
@@ -79,7 +79,13 @@ def run_debrief(
     notes: str,
     user_id: int | None = None,
 ) -> dict:
-    client = _get_client()
+    from fitnessbot.inference.factory import get_inference, get_inference_for_system
+
+    try:
+        infer = get_inference(user_id) if user_id else get_inference_for_system()
+    except InferenceError as e:
+        raise InferenceError(f"Cannot run debrief: {e}")
+
     prompt = (
         f"GOAL: {statement}\n"
         f"TARGET: {target_date} · SUCCESS METRIC: {metric}\n"
@@ -88,23 +94,23 @@ def run_debrief(
     )
 
     start = time.time()
-    response = client.messages.create(
-        model=Config.ANALYSIS_MODEL,
-        max_tokens=1000,
+    result = infer(
         system=DEBRIEF_SYSTEM,
         messages=[{"role": "user", "content": prompt}],
+        max_tokens=1000,
+        json_mode=True,
     )
     latency_ms = (time.time() - start) * 1000
-    raw_output = response.content[0].text.strip()
+    raw_output = result["text"]
 
     try:
         db.insert_llm_analysis(
             kind="goal_debrief",
-            model=Config.ANALYSIS_MODEL,
+            model="provider",
             input_digest=prompt[:200],
             output_text=raw_output[:500],
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
+            input_tokens=result.get("input_tokens", 0),
+            output_tokens=result.get("output_tokens", 0),
             latency_ms=latency_ms,
             user_id=user_id,
         )

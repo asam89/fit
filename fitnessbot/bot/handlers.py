@@ -125,7 +125,7 @@ def register_handlers(app: Application, user_id: int) -> None:
         text = update.message.text
         if not text:
             return
-        result = classify_message(text)
+        result = classify_message(text, user_id=user_id)
         intent = result.get("intent", "other")
 
         if intent == "meal":
@@ -168,7 +168,7 @@ def register_handlers(app: Application, user_id: int) -> None:
                 await update.message.reply_text("Couldn't transcribe that. Try typing it instead.")
                 return
             await update.message.reply_text(f'Heard: "{transcript}"')
-            result = classify_message(transcript)
+            result = classify_message(transcript, user_id=user_id)
             intent = result.get("intent", "meal")
             if intent == "meal":
                 await _process_meal(update, transcript, source="voice")
@@ -186,7 +186,7 @@ def register_handlers(app: Application, user_id: int) -> None:
         units = user.get("units_pref", "imperial") if user else "imperial"
 
         await update.message.reply_text("Analyzing your meal...")
-        items = parse_meal(text, units_pref=units)
+        items = parse_meal(text, units_pref=units, user_id=user_id)
         if not items:
             await update.message.reply_text(
                 "Couldn't parse that meal. Try being more specific, e.g.:\n"
