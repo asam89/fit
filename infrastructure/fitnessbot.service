@@ -1,0 +1,22 @@
+[Unit]
+Description=Fitness & Health Intelligence Platform
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/fit
+ExecStart=/home/ubuntu/fit/venv/bin/python -m fitnessbot.main
+Restart=always
+RestartSec=5
+EnvironmentFile=/home/ubuntu/fit/.env
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+# Security
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

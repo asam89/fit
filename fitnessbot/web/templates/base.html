@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-50">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Fit{% endblock %} — Health Intelligence</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: { brand: { 50: '#f0fdf4', 100: '#dcfce7', 500: '#22c55e', 600: '#16a34a', 700: '#15803d' } }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="h-full">
+  {% if user %}
+  <nav class="bg-white shadow-sm border-b border-gray-200">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex justify-between h-14">
+        <div class="flex items-center space-x-6">
+          <a href="/dashboard" class="text-lg font-bold text-brand-700">Fit</a>
+          <a href="/dashboard" class="text-sm text-gray-600 hover:text-gray-900">Dashboard</a>
+          <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900">Profile</a>
+          <a href="/health-data" class="text-sm text-gray-600 hover:text-gray-900">Health Data</a>
+          <a href="/connections" class="text-sm text-gray-600 hover:text-gray-900">Connections</a>
+        </div>
+        <div class="flex items-center space-x-4">
+          <span class="text-sm text-gray-500">{{ user.display_name }}</span>
+          <a href="/logout" class="text-sm text-red-600 hover:text-red-800">Logout</a>
+        </div>
+      </div>
+    </div>
+  </nav>
+  {% endif %}
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
