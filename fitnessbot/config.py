@@ -1,0 +1,49 @@
+"""Central configuration loaded from environment / .env file."""
+
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+
+class Config:
+    # --- Web Dashboard ---
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "change-me-in-production")
+    DASHBOARD_HOST: str = os.getenv("DASHBOARD_HOST", "0.0.0.0")
+    DASHBOARD_PORT: int = int(os.getenv("DASHBOARD_PORT", "8000"))
+    ALLOWED_ORIGINS: str = os.getenv("ALLOWED_ORIGINS", "")
+
+    # --- Encryption (for bot tokens at rest) ---
+    ENCRYPTION_KEY: str = os.getenv("ENCRYPTION_KEY", "")
+
+    # --- External APIs ---
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+
+    # --- Optional food API fallback ---
+    NUTRITIONIX_APP_ID: str = os.getenv("NUTRITIONIX_APP_ID", "")
+    NUTRITIONIX_API_KEY: str = os.getenv("NUTRITIONIX_API_KEY", "")
+
+    # --- Device Webhook ---
+    INGEST_WEBHOOK_TOKEN: str = os.getenv("INGEST_WEBHOOK_TOKEN", "")
+
+    # --- Optional Connectors ---
+    OURA_TOKEN: str = os.getenv("OURA_TOKEN", "")
+
+    # --- Database ---
+    DATABASE_PATH: str = os.getenv("DATABASE_PATH", "./fitnessbot.db")
+
+    # --- AI Models ---
+    ANALYSIS_MODEL: str = os.getenv("ANALYSIS_MODEL", "claude-sonnet-4-6")
+    ROUTER_MODEL: str = os.getenv("ROUTER_MODEL", "claude-sonnet-4-6")
+
+    # --- Behavior ---
+    TIMEZONE: str = os.getenv("TIMEZONE", "America/Toronto")
+    QUIET_HOURS: str = os.getenv("QUIET_HOURS", "22:00-07:00")
+
+    # --- Paths ---
+    BASE_DIR: Path = Path(__file__).resolve().parent.parent
+    TEMPLATE_DIR: Path = Path(__file__).resolve().parent / "web" / "templates"
+    STATIC_DIR: Path = BASE_DIR / "static"

@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
+    <div class="flex items-center space-x-2">
+      {% if connection and connection.is_active %}
+      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+        Telegram Connected
+      </span>
+      {% else %}
+      <a href="/connections" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 hover:bg-yellow-200">
+        Connect Telegram
+      </a>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Calorie Budget Card -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Today's Nutrition</h2>
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <!-- Calories -->
+      <div class="text-center">
+        <div class="relative w-32 h-32 mx-auto">
+          <svg class="w-32 h-32 transform -rotate-90" viewBox="0 0 36 36">
+            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                  fill="none" stroke="#e5e7eb" stroke-width="3"/>
+            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                  fill="none" stroke="{% if pct.calories > 100 %}#ef4444{% else %}#22c55e{% endif %}"
+                  stroke-width="3" stroke-dasharray="{{ pct.calories }}, 100"/>
+          </svg>
+          <div class="absolute inset-0 flex flex-col items-center justify-center">
+            <span class="text-2xl font-bold text-gray-900">{{ totals.calories|int }}</span>
+            <span class="text-xs text-gray-500">/ {{ targets.calories }} cal</span>
+          </div>
+        </div>
+        <p class="mt-2 text-sm font-medium {% if remaining_cal < 0 %}text-red-600{% else %}text-gray-600{% endif %}">
+          {{ remaining_cal|int }} cal remaining
+        </p>
+      </div>
+      <!-- Protein -->
+      <div>
+        <div class="flex justify-between text-sm mb-1">
+          <span class="font-medium text-gray-700">Protein</span>
+          <span class="text-gray-500">{{ totals.protein|int }}g / {{ targets.protein }}g</span>
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-3">
+          <div class="bg-blue-500 h-3 rounded-full transition-all" style="width: {{ pct.protein }}%"></div>
+        </div>
+      </div>
+      <!-- Carbs -->
+      <div>
+        <div class="flex justify-between text-sm mb-1">
+          <span class="font-medium text-gray-700">Carbs</span>
+          <span class="text-gray-500">{{ totals.carbs|int }}g / {{ targets.carbs }}g</span>
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-3">
+          <div class="bg-amber-500 h-3 rounded-full transition-all" style="width: {{ pct.carbs }}%"></div>
+        </div>
+      </div>
+      <!-- Fat -->
+      <div>
+        <div class="flex justify-between text-sm mb-1">
+          <span class="font-medium text-gray-700">Fat</span>
+          <span class="text-gray-500">{{ totals.fat|int }}g / {{ targets.fat }}g</span>
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-3">
+          <div class="bg-rose-500 h-3 rounded-full transition-all" style="width: {{ pct.fat }}%"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Weight Trend -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <h2 class="text-lg font-semibold text-gray-900 mb-4">Weight Trend</h2>
+      {% if weight.has_data %}
+      <div class="space-y-3">
+        <div class="text-3xl font-bold text-gray-900">{{ weight.current_smoothed }} lbs</div>
+        <div class="text-sm text-gray-500">Smoothed trend</div>
+        {% if weight.trend_7d is not none %}
+        <div class="flex items-center space-x-4 text-sm">
+          <span class="{% if weight.trend_7d < 0 %}text-green-600{% else %}text-red-600{% endif %}">
+            7d: {{ "%.1f"|format(weight.trend_7d) }} lbs
+          </span>
+          {% if weight.trend_30d is not none %}
+          <span class="{% if weight.trend_30d < 0 %}text-green-600{% else %}text-red-600{% endif %}">
+            30d: {{ "%.1f"|format(weight.trend_30d) }} lbs
+          </span>
+          {% endif %}
+        </div>
+        {% endif %}
+      </div>
+      {% else %}
+      <p class="text-gray-500 text-sm">No weight data yet. Log your weight via Telegram: "weight 182"</p>
+      {% endif %}
+    </div>
+
+    <!-- Recent Meals -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <h2 class="text-lg font-semibold text-gray-900 mb-4">Recent Meals</h2>
+      {% if recent_meals %}
+      <div class="space-y-3">
+        {% for meal in recent_meals %}
+        <div class="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
+          <div>
+            <p class="text-sm text-gray-900">{{ meal.raw_text[:60] }}{% if meal.raw_text|length > 60 %}...{% endif %}</p>
+            <p class="text-xs text-gray-500">{{ meal.meal_type or 'meal' }} &middot; {{ meal.source }}</p>
+          </div>
+          <span class="text-sm font-medium text-gray-700">{{ meal.total_calories|int }} cal</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-gray-500 text-sm">No meals logged yet. Send a meal description to your Telegram bot!</p>
+      {% endif %}
+    </div>
+
+    <!-- Active Goals -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <h2 class="text-lg font-semibold text-gray-900 mb-4">Active Goals</h2>
+      {% if goals %}
+      <div class="space-y-3">
+        {% for goal in goals %}
+        <div class="p-3 bg-gray-50 rounded-lg">
+          <p class="font-medium text-gray-900">{{ goal.title or goal.goal_type }}</p>
+          {% if goal.event_date %}
+          <p class="text-sm text-gray-500">{{ goal.event_name or 'Event' }} — {{ goal.event_date }}</p>
+          {% endif %}
+          {% if goal.target_weight %}
+          <p class="text-sm text-gray-500">Target: {{ goal.target_weight }} lbs</p>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="text-gray-500 text-sm">No active goals. Set up goals in your profile!</p>
+      {% endif %}
+    </div>
+
+    <!-- Quick Status -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <h2 class="text-lg font-semibold text-gray-900 mb-4">Status</h2>
+      <div class="space-y-3">
+        <div class="flex justify-between items-center">
+          <span class="text-sm text-gray-600">Diet Plan</span>
+          <span class="text-sm font-medium {% if has_plan %}text-green-600{% else %}text-gray-400{% endif %}">
+            {{ "Active" if has_plan else "Not set" }}
+          </span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-sm text-gray-600">Telegram</span>
+          <span class="text-sm font-medium {% if connection %}text-green-600{% else %}text-gray-400{% endif %}">
+            {{ "Connected" if connection else "Not connected" }}
+          </span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-sm text-gray-600">Meals today</span>
+          <span class="text-sm font-medium text-gray-900">{{ recent_meals|length }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
