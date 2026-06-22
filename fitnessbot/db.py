@@ -541,6 +541,29 @@ def run_migrations() -> None:
                     pass
             conn.execute("INSERT INTO schema_version (version) VALUES (5)")
             conn.commit()
+            current = 5
+
+        if current < 6:
+            for sql in [
+                """CREATE TABLE IF NOT EXISTS message_log (
+                    msg_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                    received_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                    channel TEXT NOT NULL DEFAULT 'text',
+                    transcript TEXT,
+                    detected_intents TEXT,
+                    writes TEXT,
+                    response_text TEXT,
+                    model TEXT,
+                    tokens_in INTEGER DEFAULT 0,
+                    tokens_out INTEGER DEFAULT 0)""",
+            ]:
+                try:
+                    conn.execute(sql)
+                except sqlite3.OperationalError:
+                    pass
+            conn.execute("INSERT INTO schema_version (version) VALUES (6)")
+            conn.commit()
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
         init_db()
@@ -1391,5 +1414,129 @@ def get_platform_stats() -> dict:
             "meals_today": meals_today,
             "llm_calls_total": llm_total,
         }
+    finally:
+        conn.close()
+
+
+# --- message_log helpers ---
+
+def insert_message_log(
+    user_id: int,
+    channel: str,
+    transcript: str | None = None,
+    detected_intents: str | None = None,
+    writes: str | None = None,
+    response_text: str | None = None,
+    model: str | None = None,
+    tokens_in: int = 0,
+    tokens_out: int = 0,
+) -> int:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            """INSERT INTO message_log
+               (user_id, channel, transcript, detected_intents, writes, response_text, model, tokens_in, tokens_out)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, channel, transcript, detected_intents, writes, response_text, model, tokens_in, tokens_out),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+# --- data_requests helpers ---
+
+def get_pending_data_request(user_id: int) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM data_requests WHERE user_id = ? AND status = 'pending' ORDER BY asked_at DESC LIMIT 1",
+            (user_id,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def insert_data_request(user_id: int, category: str, question_text: str) -> int:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "INSERT INTO data_requests (user_id, category, question_text) VALUES (?, ?, ?)",
+            (user_id, category, question_text),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def resolve_data_request(req_id: int, answer_value: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE data_requests SET status = 'answered', answered_at = ?, answer_value = ? WHERE req_id = ?",
+            (utcnow(), answer_value, req_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def expire_old_data_requests(user_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE data_requests SET status = 'expired' WHERE user_id = ? AND status = 'pending'",
+            (user_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_last_meal(user_id: int) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM meals WHERE user_id = ? ORDER BY logged_at DESC LIMIT 1",
+            (user_id,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def update_meal_items(meal_id: int, items: list[dict]) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM meal_items WHERE meal_id = ?", (meal_id,))
+        for item in items:
+            conn.execute(
+                """INSERT INTO meal_items (meal_id, food_id, name, quantity, unit, calories, protein, carbs, fat, fiber)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    meal_id,
+                    item.get("food_id"),
+                    item.get("name", ""),
+                    item.get("quantity", 1),
+                    item.get("unit", "serving"),
+                    item.get("calories", 0),
+                    item.get("protein", 0),
+                    item.get("carbs", 0),
+                    item.get("fat", 0),
+                    item.get("fiber", 0),
+                ),
+            )
+        total_cal = sum(i.get("calories", 0) for i in items)
+        total_pro = sum(i.get("protein", 0) for i in items)
+        total_carb = sum(i.get("carbs", 0) for i in items)
+        total_fat = sum(i.get("fat", 0) for i in items)
+        conn.execute(
+            "UPDATE meals SET total_calories = ?, total_protein = ?, total_carbs = ?, total_fat = ? WHERE meal_id = ?",
+            (total_cal, total_pro, total_carb, total_fat, meal_id),
+        )
+        conn.commit()
     finally:
         conn.close()
