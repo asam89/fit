@@ -39,6 +39,9 @@ class Config:
     ANALYSIS_MODEL: str = os.getenv("ANALYSIS_MODEL", "claude-sonnet-4-6")
     ROUTER_MODEL: str = os.getenv("ROUTER_MODEL", "claude-sonnet-4-6")
 
+    # --- Admin ---
+    SUPER_ADMIN_EMAIL: str = os.getenv("SUPER_ADMIN_EMAIL", "alexsam89@gmail.com")
+
     # --- Behavior ---
     TIMEZONE: str = os.getenv("TIMEZONE", "America/Toronto")
     QUIET_HOURS: str = os.getenv("QUIET_HOURS", "22:00-07:00")

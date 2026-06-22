@@ -43,6 +43,27 @@ async def validate_bot_token(token: str) -> dict | None:
     return None
 
 
+async def auto_detect_chat_id(token: str) -> str | None:
+    """Poll getUpdates to find the chat ID from the most recent message."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"https://api.telegram.org/bot{token}/getUpdates",
+                params={"limit": 10, "timeout": 0},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("ok") and data.get("result"):
+                    # Get the most recent message's chat ID
+                    for update in reversed(data["result"]):
+                        msg = update.get("message") or update.get("edited_message")
+                        if msg and msg.get("chat", {}).get("id"):
+                            return str(msg["chat"]["id"])
+    except httpx.HTTPError:
+        pass
+    return None
+
+
 def _mask_token(token: str) -> str:
     if len(token) < 10:
         return "****"
@@ -76,7 +97,7 @@ async def connections_page(request: Request):
 async def add_connection(
     request: Request,
     bot_token: str = Form(...),
-    chat_id: str = Form(...),
+    chat_id: str = Form(""),
 ):
     user = get_current_user(request)
     if not user:
@@ -85,7 +106,6 @@ async def add_connection(
     # Validate token
     bot_info = await validate_bot_token(bot_token)
     if not bot_info:
-        conn = db.get_telegram_connection(user["user_id"])
         return templates.TemplateResponse(
             "connections.html",
             {
@@ -95,6 +115,22 @@ async def add_connection(
                 "error": "Invalid bot token. Please check and try again.",
             },
         )
+
+    # Auto-detect chat ID if not provided
+    if not chat_id.strip():
+        detected = await auto_detect_chat_id(bot_token)
+        if detected:
+            chat_id = detected
+        else:
+            return templates.TemplateResponse(
+                "connections.html",
+                {
+                    "request": request,
+                    "user": user,
+                    "connection": None,
+                    "error": "Could not auto-detect your Chat ID. Please send a message to your bot in Telegram first, then try again. Or enter the Chat ID manually.",
+                },
+            )
 
     # Remove existing connection if any
     db.delete_telegram_connection(user["user_id"])

@@ -108,6 +108,9 @@ async def register_submit(
         )
     password_hash = _hash_password(password)
     user_id = db.insert_user(email, password_hash, display_name, timezone_str, units_pref)
+    if email == Config.SUPER_ADMIN_EMAIL:
+        db.ensure_superadmin(email)
+    db.touch_last_active(user_id)
     token = _create_session(user_id)
     response = RedirectResponse("/dashboard", status_code=303)
     response.set_cookie(
@@ -136,6 +139,9 @@ async def login_submit(
             "login.html",
             {"request": request, "error": "Invalid email or password."},
         )
+    if email == Config.SUPER_ADMIN_EMAIL:
+        db.ensure_superadmin(email)
+    db.touch_last_active(user["user_id"])
     token = _create_session(user["user_id"])
     response = RedirectResponse("/dashboard", status_code=303)
     response.set_cookie(
