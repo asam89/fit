@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 SCHEMA_SQL = """
 -- users
@@ -623,6 +623,26 @@ def run_migrations() -> None:
                 except sqlite3.OperationalError:
                     pass
             conn.execute("INSERT INTO schema_version (version) VALUES (8)")
+            conn.commit()
+            current = 8
+
+        if current < 9:
+            # Fix: the old training_plans table (from goals system) had different columns.
+            # Rename it and create the weekly plan version.
+            try:
+                cols = [c[1] for c in conn.execute("PRAGMA table_info(training_plans)").fetchall()]
+                if "week_start" not in cols:
+                    conn.execute("ALTER TABLE training_plans RENAME TO training_plans_legacy")
+                    conn.execute("""CREATE TABLE training_plans (
+                        plan_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                        week_start TEXT NOT NULL,
+                        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                        UNIQUE(user_id, week_start))""")
+            except sqlite3.OperationalError:
+                pass
+            conn.execute("INSERT INTO schema_version (version) VALUES (9)")
             conn.commit()
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it

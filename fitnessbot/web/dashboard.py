@@ -371,3 +371,30 @@ async def log_vitals_manual(request: Request, resting_hr: str = Form(""), blood_
     if data:
         db.insert_health_data(uid, "vitals", json.dumps(data), notes=f"Vitals: {data}", recorded_at=datetime.now(timezone.utc).isoformat())
     return RedirectResponse("/dashboard?log=vitals_ok", status_code=303)
+
+
+@router.post("/api/send-summary")
+async def send_summary_to_telegram(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+
+    uid = user["user_id"]
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    summary_type = body.get("type", "today")
+
+    from fitnessbot.briefings import build_morning_brief, build_evening_wrap, build_weekly_rollup, _send_telegram
+
+    if summary_type == "today":
+        text = build_evening_wrap(uid)
+    elif summary_type == "morning":
+        text = build_morning_brief(uid)
+    elif summary_type == "weekly":
+        text = build_weekly_rollup(uid)
+    else:
+        text = build_evening_wrap(uid)
+
+    sent = await _send_telegram(uid, text)
+    if sent:
+        return JSONResponse({"ok": True, "message": "Summary sent to Telegram"})
+    return JSONResponse({"ok": False, "error": "Could not send — check Telegram connection in Settings"}, status_code=400)

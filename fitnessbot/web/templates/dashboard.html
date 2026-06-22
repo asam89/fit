@@ -40,7 +40,13 @@
     <div class="card p-6">
       <div class="flex items-baseline justify-between mb-1">
         <span class="eyebrow">Today</span>
-        <span class="text-xs text-faint font-mono">{{ today_date }}</span>
+        <div class="flex items-center gap-3">
+          <button id="sendSummaryBtn" onclick="sendSummary('today')" class="text-[10px] text-accent hover:text-accent-press font-medium flex items-center gap-1" title="Send summary to Telegram">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
+            Send to Telegram
+          </button>
+          <span class="text-xs text-faint font-mono">{{ today_date }}</span>
+        </div>
       </div>
       {% if today_summary %}
       <p class="text-sm text-ink leading-relaxed mt-2">{{ today_summary.prose | safe }}</p>
@@ -389,6 +395,28 @@
   </section>
 
 </div>
+
+<!-- ===== SEND TO TELEGRAM JS ===== -->
+<script>
+async function sendSummary(type){
+  const btn = document.getElementById('sendSummaryBtn');
+  const origText = btn.innerHTML;
+  btn.innerHTML = '<span class="text-muted">Sending...</span>';
+  btn.disabled = true;
+  try{
+    const r = await fetch('/api/send-summary',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:type})});
+    const d = await r.json();
+    if(d.ok){
+      btn.innerHTML = '<span class="text-good">Sent!</span>';
+    } else {
+      btn.innerHTML = '<span class="text-miss">Failed</span>';
+    }
+  }catch(e){
+    btn.innerHTML = '<span class="text-miss">Error</span>';
+  }
+  setTimeout(()=>{ btn.innerHTML = origText; btn.disabled = false; }, 2000);
+}
+</script>
 
 <!-- ===== GOALS ENGINE JS ===== -->
 <script>
