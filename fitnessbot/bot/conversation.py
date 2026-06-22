@@ -40,6 +40,8 @@ Rules:
 - First confirm what was logged (use the EXACT numbers provided in context, never invent numbers)
 - Then add ONE practical, specific focus point about diet or training
 - For meals: reference remaining macros and what to prioritize next
+- When the user asks what to eat, or when there's a significant protein/macro gap (>20g protein remaining), suggest 2-3 specific foods with approximate amounts that would fill the gap. Example: "40g protein to go — try: grilled chicken breast (4oz = 35g), Greek yogurt (1 cup = 17g), or a protein shake (25g)."
+- Food suggestions should be common, practical foods. Include approximate portion and protein/macro content.
 - Voice: plain, specific, honest, lightly motivating. Never robotic stat-dumps, never alarmist
 - No medical claims. On distress signals, respond with care
 - Keep it tight — this costs the user tokens on their own key
@@ -301,6 +303,66 @@ def _act_correction(intent: dict, user_id: int, units_pref: str) -> dict:
 
 # --- RESPOND layer ---
 
+FOOD_SUGGESTIONS_DB = {
+    "protein": [
+        ("grilled chicken breast", "4oz", 35, 170),
+        ("Greek yogurt", "1 cup", 17, 100),
+        ("protein shake", "1 scoop", 25, 130),
+        ("cottage cheese", "1 cup", 28, 220),
+        ("eggs", "3 large", 18, 210),
+        ("canned tuna", "1 can", 30, 130),
+        ("turkey breast", "4oz", 28, 120),
+        ("edamame", "1 cup", 17, 190),
+        ("beef jerky", "1oz", 9, 80),
+        ("whey protein", "1 scoop", 25, 120),
+    ],
+    "fat": [
+        ("avocado", "1/2", 15, 160),
+        ("almonds", "1oz", 14, 160),
+        ("peanut butter", "2 tbsp", 16, 190),
+        ("olive oil", "1 tbsp", 14, 120),
+        ("cheese", "1oz", 9, 110),
+    ],
+    "carbs": [
+        ("oatmeal", "1 cup cooked", 27, 150),
+        ("banana", "1 medium", 27, 105),
+        ("rice", "1 cup cooked", 45, 200),
+        ("sweet potato", "1 medium", 26, 110),
+        ("whole wheat bread", "2 slices", 24, 140),
+    ],
+}
+
+
+def _get_food_suggestions(targets: dict, totals: dict) -> str:
+    """Generate food suggestion lines based on macro gaps."""
+    remaining_pro = targets["protein"] - totals.get("protein", 0)
+    remaining_fat = targets["fat"] - totals.get("fat", 0)
+    remaining_carbs = targets["carbs"] - totals.get("carbs", 0)
+    remaining_cal = targets["calories"] - totals.get("calories", 0)
+
+    suggestions = []
+
+    if remaining_pro > 15 and remaining_cal > 100:
+        foods = FOOD_SUGGESTIONS_DB["protein"]
+        picks = [f"{name} ({portion} = {pro}g P)" for name, portion, pro, cal in foods if cal <= remaining_cal][:3]
+        if picks:
+            suggestions.append(f"PROTEIN GAP ({remaining_pro:.0f}g to go). Options: {', '.join(picks)}")
+
+    if remaining_fat > 10 and remaining_cal > 100 and not suggestions:
+        foods = FOOD_SUGGESTIONS_DB["fat"]
+        picks = [f"{name} ({portion} = {fat}g F)" for name, portion, fat, cal in foods if cal <= remaining_cal][:3]
+        if picks:
+            suggestions.append(f"FAT GAP ({remaining_fat:.0f}g to go). Options: {', '.join(picks)}")
+
+    if remaining_carbs > 30 and remaining_cal > 100 and not suggestions:
+        foods = FOOD_SUGGESTIONS_DB["carbs"]
+        picks = [f"{name} ({portion} = {carb}g C)" for name, portion, carb, cal in foods if cal <= remaining_cal][:3]
+        if picks:
+            suggestions.append(f"CARBS GAP ({remaining_carbs:.0f}g to go). Options: {', '.join(picks)}")
+
+    return "\n".join(suggestions)
+
+
 def _build_context_digest(user_id: int, act_results: list[dict]) -> str:
     from fitnessbot.nutrition import get_nutrition_targets
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -324,6 +386,13 @@ def _build_context_digest(user_id: int, act_results: list[dict]) -> str:
             direction = "down" if weight["trend_7d"] < 0 else "up"
             w_line += f" ({abs(weight['trend_7d']):.1f} {direction} over 7d)"
         lines.append(w_line)
+
+    # Add food suggestions for macro gaps
+    food_hints = _get_food_suggestions(targets, totals)
+    if food_hints:
+        lines.append("")
+        lines.append("FOOD OPTIONS TO FILL GAPS:")
+        lines.append(food_hints)
 
     lines.append("")
     lines.append("JUST LOGGED:")
@@ -370,6 +439,10 @@ def _deterministic_confirmation(act_results: list[dict], user_id: int) -> str:
             t = r["totals"]
             tg = r["targets"]
             parts.append(f"{t['calories']:.0f}/{tg['calories']} cal, {t['protein']:.0f}/{tg['protein']}g P, {t['carbs']:.0f}/{tg['carbs']}g C, {t['fat']:.0f}/{tg['fat']}g F.")
+            food_hints = _get_food_suggestions(tg, t)
+            if food_hints:
+                for line in food_hints.split("\n"):
+                    parts.append(line)
         elif action == "error":
             parts.append(f"Error: {r.get('error', 'unknown')}")
         else:
