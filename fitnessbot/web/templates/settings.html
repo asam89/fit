@@ -11,15 +11,37 @@
     <h1 class="font-display text-2xl font-bold tracking-tight">Settings</h1>
   </div>
 
+  {% set saved = request.query_params.get('saved', '') %}
+  {% set error = request.query_params.get('error', '') %}
+  {% if saved %}
+  <div class="px-4 py-3 bg-good-soft text-good text-sm rounded-lg border border-good/20">
+    {% if saved == 'profile' %}Profile saved.
+    {% elif saved == 'telegram' %}Telegram connected.
+    {% elif saved == 'telegram_disconnected' %}Telegram disconnected.
+    {% elif saved == 'provider' %}API key saved and validated.
+    {% elif saved == 'activated' %}Provider activated.
+    {% elif saved == 'removed' %}API key removed.
+    {% else %}Saved.{% endif %}
+  </div>
+  {% endif %}
+  {% if error %}
+  <div class="px-4 py-3 bg-warm-soft text-miss text-sm rounded-lg border border-miss/20">
+    {% if error == 'telegram_invalid' %}Invalid bot token. Please check and try again.
+    {% elif error == 'telegram_no_chat' %}Could not detect Chat ID. Send a message to your bot first.
+    {% elif error == 'empty_key' %}API key cannot be empty.
+    {% elif 'invalid_key' in error %}Invalid API key. Validation failed — double-check the key.
+    {% elif error == 'unknown_provider' %}Unknown provider.
+    {% elif error == 'no_key' %}No key stored for that provider.
+    {% else %}Something went wrong.{% endif %}
+  </div>
+  {% endif %}
+
   <!-- Profile -->
   <section class="bg-white border border-gray-200 rounded-xl shadow-sm">
     <div class="px-6 py-4 border-b border-gray-100">
       <h2 class="font-display text-lg font-semibold">Profile</h2>
     </div>
     <form method="post" action="/settings/profile" class="px-6 py-5 space-y-4">
-      {% if profile_success %}
-      <div class="px-3 py-2 bg-good-soft text-good text-sm rounded-lg">{{ profile_success }}</div>
-      {% endif %}
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
@@ -42,7 +64,7 @@
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Sex</label>
           <select name="sex" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none">
-            <option value="">—</option>
+            <option value="">--</option>
             <option value="male" {{ 'selected' if user.sex == 'male' }}>Male</option>
             <option value="female" {{ 'selected' if user.sex == 'female' }}>Female</option>
           </select>
@@ -67,7 +89,7 @@
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Activity Level</label>
           <select name="activity_level" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none">
-            <option value="">—</option>
+            <option value="">--</option>
             <option value="sedentary" {{ 'selected' if user.activity_level == 'sedentary' }}>Sedentary</option>
             <option value="lightly_active" {{ 'selected' if user.activity_level == 'lightly_active' }}>Lightly Active</option>
             <option value="moderately_active" {{ 'selected' if user.activity_level == 'moderately_active' }}>Moderately Active</option>
@@ -86,19 +108,96 @@
     </form>
   </section>
 
+  <!-- AI Providers -->
+  <section class="bg-white border border-gray-200 rounded-xl shadow-sm">
+    <div class="px-6 py-4 border-b border-gray-100">
+      <h2 class="font-display text-lg font-semibold">AI Providers</h2>
+      <p class="text-xs text-muted mt-1">Add your own API keys. The active provider powers all AI features.</p>
+    </div>
+    <div class="px-6 py-5 space-y-5">
+      {% if has_system_key and not providers|selectattr('has_key')|list %}
+      <div class="px-4 py-3 bg-blue-50 text-blue-700 text-sm rounded-lg border border-blue-200">
+        System-level Anthropic key is active. Add your own key below to use your preferred provider.
+      </div>
+      {% endif %}
+
+      {% for p in providers %}
+      <div class="border border-gray-200 rounded-lg overflow-hidden">
+        <div class="px-4 py-3 bg-gray-50 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="font-medium text-sm">{{ p.display_name }}</span>
+            {% if p.is_active and p.has_key %}
+            <span class="px-2 py-0.5 bg-good-soft text-good text-xs font-mono rounded-full">active</span>
+            {% elif p.has_key %}
+            <span class="px-2 py-0.5 bg-gray-100 text-muted text-xs font-mono rounded-full">configured</span>
+            {% endif %}
+          </div>
+          {% if p.has_key and not p.is_active %}
+          <form method="post" action="/settings/provider/activate" class="inline">
+            <input type="hidden" name="provider" value="{{ p.name }}">
+            <input type="hidden" name="model" value="{{ p.model }}">
+            <button type="submit" class="text-xs text-accent hover:text-blue-700 font-medium">Make Active</button>
+          </form>
+          {% endif %}
+        </div>
+        <div class="px-4 py-4">
+          {% if p.has_key %}
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <span class="font-mono text-sm text-muted">{{ p.key_hint }}</span>
+              {% if p.validated_at %}
+              <span class="text-xs text-good ml-2">validated</span>
+              {% endif %}
+            </div>
+            <form method="post" action="/settings/provider/remove" class="inline">
+              <input type="hidden" name="provider" value="{{ p.name }}">
+              <button type="submit" class="text-xs text-miss hover:text-red-700 font-medium"
+                      onclick="return confirm('Remove this API key?')">Remove</button>
+            </form>
+          </div>
+          <form method="post" action="/settings/provider/activate" class="flex items-center gap-2">
+            <input type="hidden" name="provider" value="{{ p.name }}">
+            <select name="model" class="flex-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none">
+              {% for m in p.models %}
+              <option value="{{ m }}" {{ 'selected' if m == p.model }}>{{ m }}</option>
+              {% endfor %}
+            </select>
+            <button type="submit" class="px-3 py-1.5 bg-gray-100 text-sm font-medium rounded-lg hover:bg-gray-200 transition-colors">Update Model</button>
+          </form>
+          {% else %}
+          <form method="post" action="/settings/provider" class="space-y-3">
+            <input type="hidden" name="provider" value="{{ p.name }}">
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">API Key</label>
+              <input type="password" name="api_key" required
+                     placeholder="{% if p.name == 'anthropic' %}sk-ant-...{% elif p.name == 'openai' %}sk-...{% else %}AIza...{% endif %}"
+                     class="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">Model</label>
+              <select name="model" class="w-full px-2 py-1.5 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none">
+                {% for m in p.models %}
+                <option value="{{ m }}">{{ m }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <button type="submit" class="px-4 py-2 bg-accent text-white text-sm font-semibold rounded-lg hover:bg-accent-press transition-colors">
+              Add & Validate Key
+            </button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
   <!-- Telegram Connection -->
   <section class="bg-white border border-gray-200 rounded-xl shadow-sm">
     <div class="px-6 py-4 border-b border-gray-100">
       <h2 class="font-display text-lg font-semibold">Telegram Connection</h2>
     </div>
     <div class="px-6 py-5 space-y-4">
-      {% if telegram_success %}
-      <div class="px-3 py-2 bg-good-soft text-good text-sm rounded-lg">{{ telegram_success }}</div>
-      {% endif %}
-      {% if telegram_error %}
-      <div class="px-3 py-2 bg-warm-soft text-miss text-sm rounded-lg">{{ telegram_error }}</div>
-      {% endif %}
-
       {% if connection %}
       <div class="flex items-center justify-between p-4 bg-good-soft/50 rounded-lg border border-good/20">
         <div>

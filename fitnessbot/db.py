@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA_SQL = """
 -- users
@@ -378,6 +378,30 @@ CREATE TABLE IF NOT EXISTS briefing_log (
     had_nudge INTEGER NOT NULL DEFAULT 0
 );
 
+-- llm_credentials (per-user provider keys)
+CREATE TABLE IF NOT EXISTS llm_credentials (
+    cred_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    encrypted_key TEXT NOT NULL,
+    key_hint TEXT,
+    model TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    validated_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    UNIQUE(user_id, provider)
+);
+
+-- intake_sessions (AI-guided intake audit)
+CREATE TABLE IF NOT EXISTS intake_sessions (
+    is_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    completed_at TEXT,
+    questions_asked INTEGER NOT NULL DEFAULT 0,
+    answers_captured INTEGER NOT NULL DEFAULT 0
+);
+
 -- schema_version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
@@ -490,6 +514,33 @@ def run_migrations() -> None:
                     pass
             conn.execute("INSERT INTO schema_version (version) VALUES (4)")
             conn.commit()
+        if current < 5:
+            for sql in [
+                """CREATE TABLE IF NOT EXISTS llm_credentials (
+                    cred_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                    provider TEXT NOT NULL, encrypted_key TEXT NOT NULL, key_hint TEXT,
+                    model TEXT, is_active INTEGER NOT NULL DEFAULT 1, validated_at TEXT,
+                    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                    UNIQUE(user_id, provider))""",
+                """CREATE TABLE IF NOT EXISTS intake_sessions (
+                    is_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                    started_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                    completed_at TEXT, questions_asked INTEGER NOT NULL DEFAULT 0,
+                    answers_captured INTEGER NOT NULL DEFAULT 0)""",
+            ]:
+                try:
+                    conn.execute(sql)
+                except sqlite3.OperationalError:
+                    pass
+            for col_name, col_type in [("active_provider", "TEXT"), ("active_model", "TEXT")]:
+                try:
+                    conn.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
+                except sqlite3.OperationalError:
+                    pass
+            conn.execute("INSERT INTO schema_version (version) VALUES (5)")
+            conn.commit()
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
         init_db()
@@ -551,6 +602,7 @@ def update_user(user_id: int, **kwargs) -> None:
     allowed = {
         "display_name", "timezone", "sex", "height", "birthdate",
         "units_pref", "activity_level", "dietary_restrictions",
+        "active_provider", "active_model",
     }
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:
@@ -1136,6 +1188,79 @@ def get_goal_stats(user_id: int) -> dict:
             (user_id,),
         ).fetchone()["c"]
         return {"achieved": achieved, "missed": missed, "total": achieved + missed}
+    finally:
+        conn.close()
+
+
+def get_llm_credential(user_id: int, provider: str) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM llm_credentials WHERE user_id = ? AND provider = ?",
+            (user_id, provider),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_all_llm_credentials(user_id: int) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM llm_credentials WHERE user_id = ? ORDER BY provider",
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def upsert_llm_credential(
+    user_id: int,
+    provider: str,
+    encrypted_key: str,
+    key_hint: str,
+    model: str | None = None,
+    validated_at: str | None = None,
+) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            """INSERT INTO llm_credentials (user_id, provider, encrypted_key, key_hint, model, validated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(user_id, provider) DO UPDATE SET
+                 encrypted_key = excluded.encrypted_key,
+                 key_hint = excluded.key_hint,
+                 model = COALESCE(excluded.model, llm_credentials.model),
+                 validated_at = excluded.validated_at""",
+            (user_id, provider, encrypted_key, key_hint, model, validated_at),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_llm_credential(user_id: int, provider: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "DELETE FROM llm_credentials WHERE user_id = ? AND provider = ?",
+            (user_id, provider),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_llm_credential_model(user_id: int, provider: str, model: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE llm_credentials SET model = ? WHERE user_id = ? AND provider = ?",
+            (model, user_id, provider),
+        )
+        conn.commit()
     finally:
         conn.close()
 

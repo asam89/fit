@@ -1,19 +1,89 @@
-"""Settings routes: Profile + Connections combined into one page."""
-
-import json
+"""Settings routes: Profile + Connections (Telegram + AI providers)."""
 
 import httpx
+from cryptography.fernet import Fernet
+
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from fitnessbot.config import Config
 from fitnessbot import db
 from fitnessbot.web.auth import get_current_user
-from fitnessbot.web.connections import encrypt_token, auto_detect_chat_id, validate_bot_token
+from fitnessbot.inference.factory import _encrypt_key, _mask_key, PROVIDERS, DEFAULT_MODELS
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Config.TEMPLATE_DIR))
+
+
+def _get_fernet() -> Fernet:
+    key = Config.ENCRYPTION_KEY
+    if not key:
+        raise ValueError("ENCRYPTION_KEY not set")
+    return Fernet(key.encode() if isinstance(key, str) else key)
+
+
+def _encrypt_token(token: str) -> str:
+    return _get_fernet().encrypt(token.encode()).decode()
+
+
+def _decrypt_token(encrypted: str) -> str:
+    return _get_fernet().decrypt(encrypted.encode()).decode()
+
+
+async def _validate_bot_token(token: str) -> dict | None:
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"https://api.telegram.org/bot{token}/getMe")
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("ok"):
+                    return data["result"]
+    except httpx.HTTPError:
+        pass
+    return None
+
+
+async def _auto_detect_chat_id(token: str) -> str | None:
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"https://api.telegram.org/bot{token}/getUpdates",
+                params={"limit": 10, "timeout": 0},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("ok") and data.get("result"):
+                    for update in reversed(data["result"]):
+                        msg = update.get("message") or update.get("edited_message")
+                        if msg and msg.get("chat", {}).get("id"):
+                            return str(msg["chat"]["id"])
+    except httpx.HTTPError:
+        pass
+    return None
+
+
+def _build_provider_display(user_id: int, user: dict) -> list[dict]:
+    creds = db.get_all_llm_credentials(user_id)
+    cred_map = {c["provider"]: c for c in creds}
+    active_provider = user.get("active_provider") or "anthropic"
+    active_model = user.get("active_model") or ""
+
+    result = []
+    for name, provider in PROVIDERS.items():
+        cred = cred_map.get(name)
+        entry = {
+            "name": name,
+            "display_name": {"anthropic": "Anthropic (Claude)", "openai": "OpenAI (ChatGPT)", "google": "Google (Gemini)"}[name],
+            "models": provider.list_models(),
+            "is_active": name == active_provider,
+            "has_key": cred is not None,
+            "key_hint": cred["key_hint"] if cred else "",
+            "model": cred["model"] if cred and cred.get("model") else DEFAULT_MODELS.get(name, ""),
+            "validated_at": cred["validated_at"] if cred else None,
+        }
+        result.append(entry)
+    return result
 
 
 @router.get("/settings", response_class=HTMLResponse)
@@ -21,22 +91,48 @@ async def settings_page(request: Request):
     user = get_current_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
-    connection = db.get_telegram_connection(user["user_id"])
+
+    uid = user["user_id"]
+    conn = db.get_telegram_connection(uid)
+    conn_display = None
+    if conn:
+        try:
+            token = _decrypt_token(conn["bot_token_encrypted"])
+            masked = token[:6] + "..." + token[-4:] if len(token) >= 10 else "****"
+        except Exception:
+            masked = "****"
+        conn_display = {
+            "bot_username": conn.get("bot_username", "Unknown"),
+            "chat_id": conn["chat_id"],
+            "is_active": conn["is_active"],
+            "validated_at": conn.get("validated_at"),
+            "token_masked": masked,
+        }
+
+    providers = _build_provider_display(uid, user)
+    has_system_key = bool(Config.ANTHROPIC_API_KEY)
+
     return templates.TemplateResponse(
         "settings.html",
-        {"request": request, "user": user, "connection": connection},
+        {
+            "request": request,
+            "user": user,
+            "connection": conn_display,
+            "providers": providers,
+            "has_system_key": has_system_key,
+        },
     )
 
 
 @router.post("/settings/profile")
-async def settings_profile_update(
+async def update_profile(
     request: Request,
-    display_name: str = Form(...),
-    timezone_str: str = Form("America/Toronto"),
+    display_name: str = Form(""),
+    timezone_str: str = Form(""),
     sex: str = Form(""),
     height: str = Form(""),
     birthdate: str = Form(""),
-    units_pref: str = Form("imperial"),
+    units_pref: str = Form(""),
     activity_level: str = Form(""),
     dietary_restrictions: str = Form(""),
 ):
@@ -44,36 +140,35 @@ async def settings_profile_update(
     if not user:
         return RedirectResponse("/login", status_code=303)
 
-    updates = {
-        "display_name": display_name,
-        "timezone": timezone_str,
-        "units_pref": units_pref,
-    }
-    if sex:
-        updates["sex"] = sex
-    if height:
+    updates = {}
+    if display_name.strip():
+        updates["display_name"] = display_name.strip()
+    if timezone_str.strip():
+        updates["timezone"] = timezone_str.strip()
+    if sex.strip():
+        updates["sex"] = sex.strip()
+    if height.strip():
         try:
-            updates["height"] = float(height)
+            updates["height"] = float(height.strip())
         except ValueError:
             pass
-    if birthdate:
-        updates["birthdate"] = birthdate
-    if activity_level:
-        updates["activity_level"] = activity_level
-    if dietary_restrictions:
-        updates["dietary_restrictions"] = dietary_restrictions
+    if birthdate.strip():
+        updates["birthdate"] = birthdate.strip()
+    if units_pref.strip():
+        updates["units_pref"] = units_pref.strip()
+    if activity_level.strip():
+        updates["activity_level"] = activity_level.strip()
+    if dietary_restrictions.strip():
+        updates["dietary_restrictions"] = dietary_restrictions.strip()
 
-    db.update_user(user["user_id"], **updates)
-    updated_user = db.get_user_by_id(user["user_id"])
-    connection = db.get_telegram_connection(user["user_id"])
-    return templates.TemplateResponse(
-        "settings.html",
-        {"request": request, "user": updated_user, "connection": connection, "profile_success": "Profile updated."},
-    )
+    if updates:
+        db.update_user(user["user_id"], **updates)
+
+    return RedirectResponse("/settings?saved=profile", status_code=303)
 
 
 @router.post("/settings/telegram")
-async def settings_telegram_connect(
+async def connect_telegram(
     request: Request,
     bot_token: str = Form(...),
     chat_id: str = Form(""),
@@ -82,69 +177,128 @@ async def settings_telegram_connect(
     if not user:
         return RedirectResponse("/login", status_code=303)
 
-    bot_token = bot_token.strip()
-    bot_info = await validate_bot_token(bot_token)
+    bot_info = await _validate_bot_token(bot_token)
     if not bot_info:
-        connection = db.get_telegram_connection(user["user_id"])
-        return templates.TemplateResponse(
-            "settings.html",
-            {"request": request, "user": user, "connection": connection,
-             "telegram_error": "Invalid bot token. Check it and try again."},
-        )
+        return RedirectResponse("/settings?error=telegram_invalid", status_code=303)
 
     if not chat_id.strip():
-        detected = await auto_detect_chat_id(bot_token)
+        detected = await _auto_detect_chat_id(bot_token)
         if detected:
             chat_id = detected
         else:
-            connection = db.get_telegram_connection(user["user_id"])
-            return templates.TemplateResponse(
-                "settings.html",
-                {"request": request, "user": user, "connection": connection,
-                 "telegram_error": "Could not auto-detect Chat ID. Send a message to your bot first, then try again."},
-            )
+            return RedirectResponse("/settings?error=telegram_no_chat", status_code=303)
 
-    encrypted = encrypt_token(bot_token)
-    db.upsert_telegram_connection(
+    db.delete_telegram_connection(user["user_id"])
+    encrypted = _encrypt_token(bot_token)
+    db.insert_telegram_connection(
         user_id=user["user_id"],
         bot_token_encrypted=encrypted,
-        chat_id=chat_id.strip(),
-        bot_username=bot_info.get("username", ""),
+        chat_id=chat_id,
+        bot_username=bot_info.get("username"),
     )
 
-    from fitnessbot.bot.manager import ConnectionManager
-    try:
-        manager = ConnectionManager.get_instance()
-        await manager.start_bot(user["user_id"])
-    except Exception:
-        pass
+    from fitnessbot.bot.manager import connection_manager
+    await connection_manager.start_user_bot(user["user_id"])
 
-    updated_user = db.get_user_by_id(user["user_id"])
-    connection = db.get_telegram_connection(user["user_id"])
-    return templates.TemplateResponse(
-        "settings.html",
-        {"request": request, "user": updated_user, "connection": connection,
-         "telegram_success": f"Connected to @{bot_info.get('username', 'bot')}!"},
-    )
+    return RedirectResponse("/settings?saved=telegram", status_code=303)
 
 
 @router.post("/settings/telegram/disconnect")
-async def settings_telegram_disconnect(request: Request):
+async def disconnect_telegram(request: Request):
     user = get_current_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
 
-    from fitnessbot.bot.manager import ConnectionManager
-    try:
-        manager = ConnectionManager.get_instance()
-        await manager.stop_bot(user["user_id"])
-    except Exception:
-        pass
-
+    from fitnessbot.bot.manager import connection_manager
+    await connection_manager.stop_user_bot(user["user_id"])
     db.delete_telegram_connection(user["user_id"])
-    connection = db.get_telegram_connection(user["user_id"])
-    return templates.TemplateResponse(
-        "settings.html",
-        {"request": request, "user": user, "connection": connection,
-         "telegram_success": "Telegram disconnected."},
-    )
+
+    return RedirectResponse("/settings?saved=telegram_disconnected", status_code=303)
+
+
+@router.post("/settings/provider")
+async def save_provider_key(
+    request: Request,
+    provider: str = Form(...),
+    api_key: str = Form(...),
+    model: str = Form(""),
+):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+
+    uid = user["user_id"]
+    api_key = api_key.strip()
+    if not api_key:
+        return RedirectResponse("/settings?error=empty_key", status_code=303)
+
+    if provider not in PROVIDERS:
+        return RedirectResponse("/settings?error=unknown_provider", status_code=303)
+
+    p = PROVIDERS[provider]
+    valid = p.validate_key(api_key)
+    if not valid:
+        return RedirectResponse(f"/settings?error=invalid_key_{provider}", status_code=303)
+
+    from fitnessbot.inference.factory import _encrypt_key, _mask_key
+    encrypted = _encrypt_key(api_key)
+    hint = _mask_key(api_key)
+    validated_at = db.utcnow()
+
+    if not model:
+        model = DEFAULT_MODELS.get(provider, "")
+
+    db.upsert_llm_credential(uid, provider, encrypted, hint, model, validated_at)
+    db.update_user(uid, active_provider=provider, active_model=model)
+
+    return RedirectResponse("/settings?saved=provider", status_code=303)
+
+
+@router.post("/settings/provider/activate")
+async def activate_provider(request: Request, provider: str = Form(...), model: str = Form("")):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+
+    uid = user["user_id"]
+    cred = db.get_llm_credential(uid, provider)
+    if not cred:
+        return RedirectResponse("/settings?error=no_key", status_code=303)
+
+    if model:
+        db.update_llm_credential_model(uid, provider, model)
+    db.update_user(uid, active_provider=provider, active_model=model or cred.get("model", ""))
+
+    return RedirectResponse("/settings?saved=activated", status_code=303)
+
+
+@router.post("/settings/provider/remove")
+async def remove_provider_key(request: Request, provider: str = Form(...)):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+
+    uid = user["user_id"]
+    db.delete_llm_credential(uid, provider)
+
+    if user.get("active_provider") == provider:
+        creds = db.get_all_llm_credentials(uid)
+        if creds:
+            db.update_user(uid, active_provider=creds[0]["provider"], active_model=creds[0].get("model", ""))
+        else:
+            db.update_user(uid, active_provider="anthropic", active_model="")
+
+    return RedirectResponse("/settings?saved=removed", status_code=303)
+
+
+@router.get("/api/provider/models")
+async def get_provider_models(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+
+    provider = request.query_params.get("provider", "")
+    if provider not in PROVIDERS:
+        return JSONResponse({"error": "Unknown provider"}, status_code=400)
+
+    return JSONResponse({"models": PROVIDERS[provider].list_models()})
