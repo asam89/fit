@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from fitnessbot.config import Config
 from fitnessbot import db
 from fitnessbot.metrics import get_weight_summary
+from fitnessbot.nutrition import get_nutrition_targets, build_today_summary, build_month_summary
 from fitnessbot.web.auth import get_current_user
 from fitnessbot.inference.base import InferenceError
 
@@ -40,26 +41,6 @@ def _build_gaps(user_id: int, today: str, totals: dict, weight: dict, connection
     return gaps
 
 
-def _build_snapshot(totals: dict, targets: dict, meal_count: int, weight: dict) -> str:
-    if totals["calories"] == 0 and meal_count == 0:
-        return "Nothing logged yet today. Tell me what you ate or tap a quick-log to get your numbers moving."
-    remaining = targets["calories"] - totals["calories"]
-    parts = [f"{totals['calories']:.0f} of {targets['calories']} kcal"]
-    prot_gap = targets["protein"] - totals["protein"]
-    if prot_gap > 5:
-        parts.append(f"{totals['protein']:.0f}g protein ({prot_gap:.0f}g to go)")
-    else:
-        parts.append(f"{totals['protein']:.0f}g protein")
-    if meal_count:
-        parts.append(f"{meal_count} meal{'s' if meal_count != 1 else ''} logged")
-    if weight.get("has_data"):
-        parts.append(f"weight {weight['current_smoothed']} lbs")
-        if weight.get("trend_7d") is not None:
-            direction = "down" if weight["trend_7d"] < 0 else "up"
-            parts.append(f"{abs(weight['trend_7d']):.1f} {direction} this week")
-    return " · ".join(parts)
-
-
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_home(request: Request):
     user = get_current_user(request)
@@ -69,7 +50,6 @@ async def dashboard_home(request: Request):
     uid = user["user_id"]
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     totals = db.get_today_totals(uid, today)
-    plan = db.get_active_diet_plan(uid)
     recent_meals = db.get_recent_meals(uid, limit=5)
     weight = get_weight_summary(uid)
     connection = db.get_telegram_connection(uid)
@@ -81,20 +61,15 @@ async def dashboard_home(request: Request):
     heatmap_data = db.get_logging_heatmap(uid)
     meal_count = db.get_meal_count_today(uid, today)
 
-    targets = {
-        "calories": plan["daily_calories"] if plan and plan.get("daily_calories") else 2000,
-        "protein": plan["daily_protein"] if plan and plan.get("daily_protein") else 140,
-        "carbs": plan["daily_carbs"] if plan and plan.get("daily_carbs") else 200,
-        "fat": plan["daily_fat"] if plan and plan.get("daily_fat") else 60,
-    }
+    # Single source of truth: nutrition_targets
+    targets = get_nutrition_targets(uid)
 
     pct = {}
-    for k in targets:
-        pct[k] = min(100, int(totals[k] / targets[k] * 100)) if targets[k] else 0
+    for k in ("calories", "protein", "carbs", "fat"):
+        pct[k] = min(100, int(totals[k] / targets[k] * 100)) if targets.get(k) else 0
 
     remaining_cal = targets["calories"] - totals["calories"]
     gaps = _build_gaps(uid, today, totals, weight, connection)
-    snapshot_text = _build_snapshot(totals, targets, meal_count, weight)
 
     today_date = datetime.now(timezone.utc).strftime("%A, %b %d")
 
@@ -105,13 +80,18 @@ async def dashboard_home(request: Request):
     if not has_ai:
         gaps.insert(0, "Add an API key in Settings \u2192 Connections to enable AI features.")
 
+    # Build rich summaries
+    today_summary = build_today_summary(uid)
+    month_summary = build_month_summary(uid)
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
             "request": request,
             "user": user,
             "today_date": today_date,
-            "snapshot_text": snapshot_text,
+            "today_summary": today_summary,
+            "month_summary": month_summary,
             "totals": totals,
             "targets": targets,
             "pct": pct,
@@ -130,6 +110,27 @@ async def dashboard_home(request: Request):
             "has_ai": has_ai,
         },
     )
+
+
+@router.get("/api/targets")
+async def api_targets(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+    targets = get_nutrition_targets(user["user_id"])
+    return JSONResponse(targets)
+
+
+@router.post("/api/targets/refresh")
+async def api_targets_refresh(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+    from fitnessbot.nutrition import compute_targets
+    uid = user["user_id"]
+    targets = compute_targets(uid)
+    db.upsert_nutrition_targets(uid, targets)
+    return JSONResponse(targets)
 
 
 @router.get("/api/trends")

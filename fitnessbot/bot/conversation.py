@@ -261,18 +261,12 @@ def _act_goal(intent: dict, user_id: int) -> dict:
 
 
 def _act_query(user_id: int) -> dict:
+    from fitnessbot.nutrition import get_nutrition_targets
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     totals = db.get_today_totals(user_id, today)
-    plan = db.get_active_diet_plan(user_id)
+    targets = get_nutrition_targets(user_id)
     weight = get_weight_summary(user_id)
     meal_count = db.get_meal_count_today(user_id, today)
-
-    targets = {
-        "calories": plan["daily_calories"] if plan and plan.get("daily_calories") else 2000,
-        "protein": plan["daily_protein"] if plan and plan.get("daily_protein") else 140,
-        "carbs": plan["daily_carbs"] if plan and plan.get("daily_carbs") else 200,
-        "fat": plan["daily_fat"] if plan and plan.get("daily_fat") else 60,
-    }
 
     return {
         "action": "query",
@@ -308,18 +302,12 @@ def _act_correction(intent: dict, user_id: int, units_pref: str) -> dict:
 # --- RESPOND layer ---
 
 def _build_context_digest(user_id: int, act_results: list[dict]) -> str:
+    from fitnessbot.nutrition import get_nutrition_targets
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     totals = db.get_today_totals(user_id, today)
-    plan = db.get_active_diet_plan(user_id)
+    targets = get_nutrition_targets(user_id)
     weight = get_weight_summary(user_id)
     meal_count = db.get_meal_count_today(user_id, today)
-
-    targets = {
-        "calories": plan["daily_calories"] if plan and plan.get("daily_calories") else 2000,
-        "protein": plan["daily_protein"] if plan and plan.get("daily_protein") else 140,
-        "carbs": plan["daily_carbs"] if plan and plan.get("daily_carbs") else 200,
-        "fat": plan["daily_fat"] if plan and plan.get("daily_fat") else 60,
-    }
 
     remaining_cal = targets["calories"] - totals["calories"]
     remaining_pro = targets["protein"] - totals["protein"]
@@ -347,10 +335,11 @@ def _build_context_digest(user_id: int, act_results: list[dict]) -> str:
 
 def _deterministic_confirmation(act_results: list[dict], user_id: int) -> str:
     """Build a fallback confirmation without LLM."""
+    from fitnessbot.nutrition import get_nutrition_targets
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     totals = db.get_today_totals(user_id, today)
-    plan = db.get_active_diet_plan(user_id)
-    target_pro = plan["daily_protein"] if plan and plan.get("daily_protein") else 140
+    targets_data = get_nutrition_targets(user_id)
+    target_pro = targets_data["protein"]
 
     parts = []
     for r in act_results:

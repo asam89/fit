@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 7
 
 SCHEMA_SQL = """
 -- users
@@ -563,6 +563,32 @@ def run_migrations() -> None:
                 except sqlite3.OperationalError:
                     pass
             conn.execute("INSERT INTO schema_version (version) VALUES (6)")
+            conn.commit()
+            current = 6
+
+        if current < 7:
+            for sql in [
+                """CREATE TABLE IF NOT EXISTS nutrition_targets (
+                    nt_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                    computed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                    tdee_estimate INTEGER,
+                    method TEXT NOT NULL DEFAULT 'default',
+                    goal_type TEXT NOT NULL DEFAULT 'maintain',
+                    calorie_target INTEGER NOT NULL,
+                    protein_target INTEGER NOT NULL,
+                    carbs_target INTEGER NOT NULL,
+                    fat_target INTEGER NOT NULL,
+                    fiber_target INTEGER DEFAULT 30,
+                    eating_focus TEXT,
+                    computation_inputs TEXT,
+                    UNIQUE(user_id))""",
+            ]:
+                try:
+                    conn.execute(sql)
+                except sqlite3.OperationalError:
+                    pass
+            conn.execute("INSERT INTO schema_version (version) VALUES (7)")
             conn.commit()
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
@@ -1538,5 +1564,97 @@ def update_meal_items(meal_id: int, items: list[dict]) -> None:
             (total_cal, total_pro, total_carb, total_fat, meal_id),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+# --- nutrition_targets helpers ---
+
+def get_nutrition_targets(user_id: int) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM nutrition_targets WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        if not row:
+            return None
+        r = dict(row)
+        return {
+            "tdee": r.get("tdee_estimate"),
+            "goal_type": r.get("goal_type", "maintain"),
+            "calories": r.get("calorie_target"),
+            "protein": r.get("protein_target"),
+            "carbs": r.get("carbs_target"),
+            "fat": r.get("fat_target"),
+            "fiber": r.get("fiber_target"),
+            "method": r.get("method", "default"),
+            "eating_focus": r.get("eating_focus"),
+            "computed_at": r.get("computed_at"),
+            "weight_used": None,
+        }
+    finally:
+        conn.close()
+
+
+def upsert_nutrition_targets(user_id: int, targets: dict) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            """INSERT INTO nutrition_targets
+               (user_id, tdee_estimate, method, goal_type, calorie_target,
+                protein_target, carbs_target, fat_target, fiber_target, eating_focus, computation_inputs)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                 tdee_estimate = excluded.tdee_estimate,
+                 method = excluded.method,
+                 goal_type = excluded.goal_type,
+                 calorie_target = excluded.calorie_target,
+                 protein_target = excluded.protein_target,
+                 carbs_target = excluded.carbs_target,
+                 fat_target = excluded.fat_target,
+                 fiber_target = excluded.fiber_target,
+                 eating_focus = excluded.eating_focus,
+                 computation_inputs = excluded.computation_inputs,
+                 computed_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')""",
+            (
+                user_id,
+                targets.get("tdee"),
+                targets.get("method", "default"),
+                targets.get("goal_type", "maintain"),
+                targets.get("calories", 2200),
+                targets.get("protein", 140),
+                targets.get("carbs", 220),
+                targets.get("fat", 60),
+                targets.get("fiber", 30),
+                targets.get("eating_focus"),
+                json.dumps({"weight_used": targets.get("weight_used")}),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_health_data_today(user_id: int, date_str: str, data_type: str) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM health_data WHERE user_id = ? AND data_type = ? AND DATE(recorded_at) = ? ORDER BY recorded_at DESC",
+            (user_id, data_type, date_str),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_workout_count_range(user_id: int, days: int) -> int:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) as c FROM health_data WHERE user_id = ? AND data_type = 'workout' AND DATE(recorded_at) >= date('now', ?)",
+            (user_id, f"-{days} days"),
+        ).fetchone()
+        return row["c"]
     finally:
         conn.close()

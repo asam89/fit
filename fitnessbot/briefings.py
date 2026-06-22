@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 from fitnessbot.config import Config
 from fitnessbot import db
 from fitnessbot.metrics import get_weight_summary
+from fitnessbot.nutrition import get_nutrition_targets
 from fitnessbot.web.connections import decrypt_token
 
 logger = logging.getLogger(__name__)
@@ -30,13 +31,8 @@ def _in_quiet_hours(tz_str: str = "America/Toronto") -> bool:
 
 
 def _get_user_targets(user_id: int) -> dict:
-    plan = db.get_active_diet_plan(user_id)
-    return {
-        "calories": plan["daily_calories"] if plan and plan.get("daily_calories") else 2000,
-        "protein": plan["daily_protein"] if plan and plan.get("daily_protein") else 140,
-        "carbs": plan["daily_carbs"] if plan and plan.get("daily_carbs") else 200,
-        "fat": plan["daily_fat"] if plan and plan.get("daily_fat") else 60,
-    }
+    """Single source of truth: nutrition_targets table."""
+    return get_nutrition_targets(user_id)
 
 
 async def _send_telegram(user_id: int, text: str) -> bool:

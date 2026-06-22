@@ -35,15 +35,18 @@
 {% block content %}
 <div class="space-y-6">
 
-  <!-- ===== TODAY SNAPSHOT ===== -->
+  <!-- ===== TODAY SUMMARY ===== -->
   <section id="today">
     <div class="card p-6">
       <div class="flex items-baseline justify-between mb-1">
         <span class="eyebrow">Today</span>
         <span class="text-xs text-faint font-mono">{{ today_date }}</span>
       </div>
-      {% if snapshot_text %}
-      <p class="text-sm text-muted leading-relaxed mt-2">{{ snapshot_text }}</p>
+      {% if today_summary %}
+      <p class="text-sm text-ink leading-relaxed mt-2">{{ today_summary.prose | safe }}</p>
+      {% if today_summary.eating_focus %}
+      <p class="text-xs text-accent font-medium mt-2 italic">{{ today_summary.eating_focus }}</p>
+      {% endif %}
       {% endif %}
 
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5">
@@ -113,6 +116,11 @@
         <div>
           <div class="text-xs text-faint font-mono uppercase tracking-wider mb-1">Remaining</div>
           <div class="text-lg font-display font-bold {% if remaining_cal < 0 %}text-miss{% else %}text-good{% endif %}">{{ remaining_cal|int }} <span class="text-sm font-normal text-muted">cal</span></div>
+        </div>
+        <div>
+          <div class="text-xs text-faint font-mono uppercase tracking-wider mb-1">TDEE</div>
+          <div class="text-lg font-display font-bold">{{ targets.tdee }} <span class="text-sm font-normal text-muted">cal</span></div>
+          <div class="text-[10px] text-faint">{{ targets.method }} · {{ targets.goal_type }}</div>
         </div>
         {% if not connection %}
         <div class="ml-auto self-center">
@@ -243,6 +251,46 @@
       </details>
     </div>
   </section>
+
+  <!-- ===== THIS MONTH SUMMARY ===== -->
+  {% if month_summary %}
+  <section id="month">
+    <div class="card p-5">
+      <div class="flex items-baseline justify-between mb-2">
+        <span class="eyebrow">This month</span>
+        {% if targets.tdee %}
+        <span class="text-[10px] text-faint font-mono">TDEE ~{{ targets.tdee }} cal ({{ targets.method }})</span>
+        {% endif %}
+      </div>
+      <p class="text-sm text-ink leading-relaxed">{{ month_summary.prose | safe }}</p>
+
+      {% if month_summary.logging_days > 0 %}
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-3 border-t border-gray-100">
+        <div>
+          <div class="text-[10px] text-faint font-mono uppercase tracking-wider mb-0.5">Avg intake</div>
+          <div class="text-sm font-display font-bold">{{ month_summary.avg_calories }} <span class="text-xs font-normal text-muted">cal/day</span></div>
+        </div>
+        <div>
+          <div class="text-[10px] text-faint font-mono uppercase tracking-wider mb-0.5">Logged</div>
+          <div class="text-sm font-display font-bold">{{ month_summary.logging_days }} <span class="text-xs font-normal text-muted">of {{ month_summary.days_in_month }} days</span></div>
+        </div>
+        <div>
+          <div class="text-[10px] text-faint font-mono uppercase tracking-wider mb-0.5">On target</div>
+          <div class="text-sm font-display font-bold">{{ month_summary.days_on_target }} <span class="text-xs font-normal text-muted">days</span></div>
+        </div>
+        {% if month_summary.weight_change is not none %}
+        <div>
+          <div class="text-[10px] text-faint font-mono uppercase tracking-wider mb-0.5">Weight</div>
+          <div class="text-sm font-display font-bold {% if month_summary.weight_change < 0 %}text-good{% elif month_summary.weight_change > 0 %}text-miss{% endif %}">
+            {{ "%.1f"|format(month_summary.weight_change) }} <span class="text-xs font-normal text-muted">lbs</span>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
 
   <!-- ===== RECENT MEALS ===== -->
   {% if recent_meals %}
