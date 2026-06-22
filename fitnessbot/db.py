@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA_SQL = """
 -- users
@@ -326,6 +326,58 @@ CREATE TABLE IF NOT EXISTS plan_history (
     reason TEXT
 );
 
+-- weekly_summary (materialized rollup)
+CREATE TABLE IF NOT EXISTS weekly_summary (
+    ws_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    week_start TEXT NOT NULL,
+    avg_calories REAL,
+    avg_protein REAL,
+    avg_carbs REAL,
+    avg_fat REAL,
+    weight_start REAL,
+    weight_end REAL,
+    weight_change REAL,
+    avg_sleep_min REAL,
+    avg_resting_hr REAL,
+    total_steps REAL,
+    workouts INTEGER,
+    logging_days INTEGER,
+    days_on_target INTEGER,
+    UNIQUE(user_id, week_start)
+);
+
+-- monthly_summary (materialized rollup)
+CREATE TABLE IF NOT EXISTS monthly_summary (
+    ms_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    month TEXT NOT NULL,
+    avg_calories REAL,
+    avg_protein REAL,
+    avg_carbs REAL,
+    avg_fat REAL,
+    weight_start REAL,
+    weight_end REAL,
+    weight_change REAL,
+    avg_sleep_min REAL,
+    avg_resting_hr REAL,
+    total_steps REAL,
+    workouts INTEGER,
+    logging_days INTEGER,
+    days_on_target INTEGER,
+    UNIQUE(user_id, month)
+);
+
+-- briefing_log (audit trail for scheduled briefings)
+CREATE TABLE IF NOT EXISTS briefing_log (
+    bl_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    sent_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    briefing_type TEXT NOT NULL,
+    content_summary TEXT,
+    had_nudge INTEGER NOT NULL DEFAULT 0
+);
+
 -- schema_version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
@@ -409,6 +461,34 @@ def run_migrations() -> None:
                 except sqlite3.OperationalError:
                     pass
             conn.execute("INSERT INTO schema_version (version) VALUES (3)")
+            conn.commit()
+        if current < 4:
+            for sql in [
+                """CREATE TABLE IF NOT EXISTS weekly_summary (
+                    ws_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                    week_start TEXT NOT NULL, avg_calories REAL, avg_protein REAL, avg_carbs REAL, avg_fat REAL,
+                    weight_start REAL, weight_end REAL, weight_change REAL, avg_sleep_min REAL, avg_resting_hr REAL,
+                    total_steps REAL, workouts INTEGER, logging_days INTEGER, days_on_target INTEGER,
+                    UNIQUE(user_id, week_start))""",
+                """CREATE TABLE IF NOT EXISTS monthly_summary (
+                    ms_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                    month TEXT NOT NULL, avg_calories REAL, avg_protein REAL, avg_carbs REAL, avg_fat REAL,
+                    weight_start REAL, weight_end REAL, weight_change REAL, avg_sleep_min REAL, avg_resting_hr REAL,
+                    total_steps REAL, workouts INTEGER, logging_days INTEGER, days_on_target INTEGER,
+                    UNIQUE(user_id, month))""",
+                """CREATE TABLE IF NOT EXISTS briefing_log (
+                    bl_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                    sent_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                    briefing_type TEXT NOT NULL, content_summary TEXT, had_nudge INTEGER NOT NULL DEFAULT 0)""",
+            ]:
+                try:
+                    conn.execute(sql)
+                except sqlite3.OperationalError:
+                    pass
+            conn.execute("INSERT INTO schema_version (version) VALUES (4)")
             conn.commit()
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
@@ -1056,6 +1136,112 @@ def get_goal_stats(user_id: int) -> dict:
             (user_id,),
         ).fetchone()["c"]
         return {"achieved": achieved, "missed": missed, "total": achieved + missed}
+    finally:
+        conn.close()
+
+
+def upsert_telegram_connection(
+    user_id: int,
+    bot_token_encrypted: str,
+    chat_id: str,
+    bot_username: str | None = None,
+) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM telegram_connections WHERE user_id = ?", (user_id,))
+        conn.execute(
+            """INSERT INTO telegram_connections
+               (user_id, bot_token_encrypted, chat_id, bot_username, validated_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (user_id, bot_token_encrypted, chat_id, bot_username, utcnow()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_weight_trend_range(user_id: int, days: int = 30) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT date, raw_weight as raw, smoothed_weight as smoothed
+               FROM weight_trend WHERE user_id = ?
+               AND date >= date('now', ?)
+               ORDER BY date ASC""",
+            (user_id, f"-{days} days"),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_calorie_history(user_id: int, days: int = 30) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT DATE(logged_at) as date,
+                      SUM(total_calories) as calories,
+                      SUM(total_protein) as protein
+               FROM meals WHERE user_id = ?
+               AND DATE(logged_at) >= date('now', ?)
+               GROUP BY DATE(logged_at)
+               ORDER BY date ASC""",
+            (user_id, f"-{days} days"),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_logging_heatmap(user_id: int) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT DATE(logged_at) as date, COUNT(*) as count
+               FROM meals WHERE user_id = ?
+               AND DATE(logged_at) >= date('now', '-365 days')
+               GROUP BY DATE(logged_at)
+               ORDER BY date ASC""",
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_meal_count_today(user_id: int, date_str: str) -> int:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) as c FROM meals WHERE user_id = ? AND DATE(logged_at) = ?",
+            (user_id, date_str),
+        ).fetchone()
+        return row["c"]
+    finally:
+        conn.close()
+
+
+def insert_briefing_log(user_id: int, briefing_type: str, content_summary: str, had_nudge: bool = False) -> int:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "INSERT INTO briefing_log (user_id, briefing_type, content_summary, had_nudge) VALUES (?, ?, ?, ?)",
+            (user_id, briefing_type, content_summary, 1 if had_nudge else 0),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def get_briefings_sent_today(user_id: int, briefing_type: str) -> int:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) as c FROM briefing_log WHERE user_id = ? AND briefing_type = ? AND DATE(sent_at) = date('now')",
+            (user_id, briefing_type),
+        ).fetchone()
+        return row["c"]
     finally:
         conn.close()
 

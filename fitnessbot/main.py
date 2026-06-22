@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fitnessbot.config import Config
 from fitnessbot import db
 from fitnessbot.bot.manager import connection_manager
+from fitnessbot.scheduler import start_scheduler, shutdown_scheduler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,8 +36,10 @@ async def lifespan(application: FastAPI):
         logger.info("Active bots: %d", connection_manager.active_count)
 
     asyncio.create_task(start_bots())
+    start_scheduler()
     yield
     # Shutdown
+    shutdown_scheduler()
     logger.info("Shutting down bot connections...")
     await connection_manager.stop_all()
 

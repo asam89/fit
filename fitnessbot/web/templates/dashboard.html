@@ -1,169 +1,440 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+  .card{background:#fff;border:1px solid #E6E8EE;border-radius:14px;box-shadow:0 1px 2px rgba(20,22,29,.03),0 8px 24px -18px rgba(20,22,29,.18)}
+  .eyebrow{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#9aa1b0}
+  .pill{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid #E6E8EE;background:#fff;color:#646B7A;transition:all .15s}
+  .pill:hover{border-color:#d0d4de}
+  .pill.active{background:#2D52F5;color:#fff;border-color:#2D52F5}
+  .ring-track{fill:none;stroke:#E6E8EE;stroke-width:3}
+  .ring-fill{fill:none;stroke-width:3;stroke-linecap:round;transition:stroke-dasharray .6s cubic-bezier(.2,.7,.2,1)}
+  .gap-card{background:#FEF1EC;border:1px solid #F6D8C6;border-radius:10px;padding:12px 14px;display:flex;align-items:center;gap:10px}
+  .gap-card .dot{width:6px;height:6px;border-radius:50%;background:#B25410;flex:none}
+
+  .g-card{background:#fff;border:1px solid #E6E8EE;border-radius:14px;box-shadow:0 1px 2px rgba(20,22,29,.03),0 8px 24px -18px rgba(20,22,29,.18)}
+  .g-check{width:21px;height:21px;flex:none;border-radius:6px;border:1.5px solid #E6E8EE;background:#fff;display:grid;place-items:center;margin-top:1px;transition:all .15s;cursor:pointer}
+  .g-check:hover{border-color:#2D52F5}
+  .g-check.on{background:#2D52F5;border-color:#2D52F5}
+  .g-check svg{opacity:0;transition:opacity .12s}
+  .g-check.on svg{opacity:1}
+  .g-step.done .txt{color:#9aa1b0;text-decoration:line-through;text-decoration-color:#E6E8EE}
+  .g-fill{position:absolute;left:0;top:0;bottom:0;border-radius:6px;background:#2D52F5;transition:width .4s cubic-bezier(.2,.7,.2,1)}
+  .g-debrief{background:#FEF1EC;border-color:#F6D8C6}
+
+  .g-spin{width:15px;height:15px;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;animation:g-sp .7s linear infinite;display:inline-block}
+  @keyframes g-sp{to{transform:rotate(360deg)}}
+
+  .log-chip{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:10px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid #E6E8EE;background:#fff;color:#14161D;transition:all .15s}
+  .log-chip:hover{border-color:#2D52F5;color:#2D52F5}
+
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+{% endblock %}
 {% block content %}
 <div class="space-y-6">
-  <!-- Header -->
-  <div class="flex items-center justify-between">
-    <h1 class="text-2xl font-bold text-gray-900">Dashboard</h1>
-    <div class="flex items-center space-x-2">
-      {% if connection and connection.is_active %}
-      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-        Telegram Connected
-      </span>
-      {% else %}
-      <a href="/connections" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 hover:bg-yellow-200">
-        Connect Telegram
-      </a>
-      {% endif %}
-    </div>
-  </div>
 
-  <!-- Calorie Budget Card -->
-  <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-    <h2 class="text-lg font-semibold text-gray-900 mb-4">Today's Nutrition</h2>
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-      <!-- Calories -->
-      <div class="text-center">
-        <div class="relative w-32 h-32 mx-auto">
-          <svg class="w-32 h-32 transform -rotate-90" viewBox="0 0 36 36">
-            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                  fill="none" stroke="#e5e7eb" stroke-width="3"/>
-            <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                  fill="none" stroke="{% if pct.calories > 100 %}#ef4444{% else %}#22c55e{% endif %}"
-                  stroke-width="3" stroke-dasharray="{{ pct.calories }}, 100"/>
+  <!-- ===== TODAY SNAPSHOT ===== -->
+  <section id="today">
+    <div class="card p-6">
+      <div class="flex items-baseline justify-between mb-1">
+        <span class="eyebrow">Today</span>
+        <span class="text-xs text-faint font-mono">{{ today_date }}</span>
+      </div>
+      {% if snapshot_text %}
+      <p class="text-sm text-muted leading-relaxed mt-2">{{ snapshot_text }}</p>
+      {% endif %}
+
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5">
+        <!-- Calories ring -->
+        <div class="text-center">
+          <svg class="w-24 h-24 mx-auto" viewBox="0 0 36 36">
+            <path class="ring-track" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+            <path class="ring-fill" stroke="{% if pct.calories > 100 %}#E04338{% else %}#2D52F5{% endif %}"
+                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                  stroke-dasharray="{{ pct.calories }}, 100"/>
           </svg>
-          <div class="absolute inset-0 flex flex-col items-center justify-center">
-            <span class="text-2xl font-bold text-gray-900">{{ totals.calories|int }}</span>
-            <span class="text-xs text-gray-500">/ {{ targets.calories }} cal</span>
+          <div class="relative -mt-[62px] mb-[14px]">
+            <div class="text-xl font-bold font-display">{{ totals.calories|int }}</div>
+            <div class="text-[10px] text-faint font-mono">/ {{ targets.calories }}</div>
+          </div>
+          <div class="text-xs text-muted mt-1">Calories</div>
+        </div>
+        <!-- Protein -->
+        <div class="flex flex-col justify-center">
+          <div class="flex justify-between text-xs mb-1">
+            <span class="font-medium">Protein</span>
+            <span class="text-faint font-mono">{{ totals.protein|int }}g / {{ targets.protein }}g</span>
+          </div>
+          <div class="w-full bg-gray-100 rounded-full h-2">
+            <div class="bg-blue-500 h-2 rounded-full" style="width:{{ pct.protein }}%"></div>
           </div>
         </div>
-        <p class="mt-2 text-sm font-medium {% if remaining_cal < 0 %}text-red-600{% else %}text-gray-600{% endif %}">
-          {{ remaining_cal|int }} cal remaining
-        </p>
-      </div>
-      <!-- Protein -->
-      <div>
-        <div class="flex justify-between text-sm mb-1">
-          <span class="font-medium text-gray-700">Protein</span>
-          <span class="text-gray-500">{{ totals.protein|int }}g / {{ targets.protein }}g</span>
+        <!-- Carbs -->
+        <div class="flex flex-col justify-center">
+          <div class="flex justify-between text-xs mb-1">
+            <span class="font-medium">Carbs</span>
+            <span class="text-faint font-mono">{{ totals.carbs|int }}g / {{ targets.carbs }}g</span>
+          </div>
+          <div class="w-full bg-gray-100 rounded-full h-2">
+            <div class="bg-amber-500 h-2 rounded-full" style="width:{{ pct.carbs }}%"></div>
+          </div>
         </div>
-        <div class="w-full bg-gray-200 rounded-full h-3">
-          <div class="bg-blue-500 h-3 rounded-full transition-all" style="width: {{ pct.protein }}%"></div>
-        </div>
-      </div>
-      <!-- Carbs -->
-      <div>
-        <div class="flex justify-between text-sm mb-1">
-          <span class="font-medium text-gray-700">Carbs</span>
-          <span class="text-gray-500">{{ totals.carbs|int }}g / {{ targets.carbs }}g</span>
-        </div>
-        <div class="w-full bg-gray-200 rounded-full h-3">
-          <div class="bg-amber-500 h-3 rounded-full transition-all" style="width: {{ pct.carbs }}%"></div>
+        <!-- Fat -->
+        <div class="flex flex-col justify-center">
+          <div class="flex justify-between text-xs mb-1">
+            <span class="font-medium">Fat</span>
+            <span class="text-faint font-mono">{{ totals.fat|int }}g / {{ targets.fat }}g</span>
+          </div>
+          <div class="w-full bg-gray-100 rounded-full h-2">
+            <div class="bg-rose-400 h-2 rounded-full" style="width:{{ pct.fat }}%"></div>
+          </div>
         </div>
       </div>
-      <!-- Fat -->
-      <div>
-        <div class="flex justify-between text-sm mb-1">
-          <span class="font-medium text-gray-700">Fat</span>
-          <span class="text-gray-500">{{ totals.fat|int }}g / {{ targets.fat }}g</span>
-        </div>
-        <div class="w-full bg-gray-200 rounded-full h-3">
-          <div class="bg-rose-500 h-3 rounded-full transition-all" style="width: {{ pct.fat }}%"></div>
-        </div>
-      </div>
-    </div>
-  </div>
 
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-    <!-- Weight Trend -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <h2 class="text-lg font-semibold text-gray-900 mb-4">Weight Trend</h2>
-      {% if weight.has_data %}
-      <div class="space-y-3">
-        <div class="text-3xl font-bold text-gray-900">{{ weight.current_smoothed }} lbs</div>
-        <div class="text-sm text-gray-500">Smoothed trend</div>
-        {% if weight.trend_7d is not none %}
-        <div class="flex items-center space-x-4 text-sm">
-          <span class="{% if weight.trend_7d < 0 %}text-green-600{% else %}text-red-600{% endif %}">
-            7d: {{ "%.1f"|format(weight.trend_7d) }} lbs
-          </span>
-          {% if weight.trend_30d is not none %}
-          <span class="{% if weight.trend_30d < 0 %}text-green-600{% else %}text-red-600{% endif %}">
-            30d: {{ "%.1f"|format(weight.trend_30d) }} lbs
-          </span>
+      <!-- Weight + status row -->
+      <div class="flex flex-wrap gap-4 mt-5 pt-4 border-t border-gray-100">
+        {% if weight.has_data %}
+        <div>
+          <div class="text-xs text-faint font-mono uppercase tracking-wider mb-1">Weight</div>
+          <div class="text-lg font-display font-bold">{{ weight.current_smoothed }} <span class="text-sm font-normal text-muted">lbs</span></div>
+          {% if weight.trend_7d is not none %}
+          <div class="text-xs {% if weight.trend_7d < 0 %}text-good{% else %}text-miss{% endif %}">
+            {{ "%.1f"|format(weight.trend_7d) }} over 7d
+          </div>
           {% endif %}
         </div>
         {% endif %}
+        <div>
+          <div class="text-xs text-faint font-mono uppercase tracking-wider mb-1">Meals today</div>
+          <div class="text-lg font-display font-bold">{{ meal_count }}</div>
+        </div>
+        <div>
+          <div class="text-xs text-faint font-mono uppercase tracking-wider mb-1">Remaining</div>
+          <div class="text-lg font-display font-bold {% if remaining_cal < 0 %}text-miss{% else %}text-good{% endif %}">{{ remaining_cal|int }} <span class="text-sm font-normal text-muted">cal</span></div>
+        </div>
+        {% if not connection %}
+        <div class="ml-auto self-center">
+          <a href="/settings" class="text-xs font-medium text-accent hover:text-accent-press">Connect Telegram →</a>
+        </div>
+        {% endif %}
       </div>
-      {% else %}
-      <p class="text-gray-500 text-sm">No weight data yet. Log your weight via Telegram: "weight 182"</p>
+    </div>
+  </section>
+
+  <!-- ===== MISSING DATA PROMPTS ===== -->
+  {% if gaps %}
+  <section id="gaps">
+    <div class="space-y-2">
+      {% for gap in gaps %}
+      <div class="gap-card">
+        <span class="dot"></span>
+        <span class="text-sm text-amber">{{ gap }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- ===== QUICK LOG ===== -->
+  <section id="log">
+    <div class="card p-5">
+      <div class="eyebrow mb-3">Quick log</div>
+      <form method="post" action="/dashboard/log" class="flex gap-2">
+        <input type="text" name="text" placeholder="Type what you ate, your weight, sleep hours…"
+               class="flex-1 px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none">
+        <button type="submit" class="px-4 py-2.5 bg-accent text-white text-sm font-semibold rounded-lg hover:bg-accent-press transition-colors">Log</button>
+      </form>
+      {% if log_success %}
+      <div class="mt-2 px-3 py-2 bg-good-soft text-good text-sm rounded-lg">{{ log_success }}</div>
+      {% endif %}
+      {% if log_error %}
+      <div class="mt-2 px-3 py-2 bg-warm-soft text-miss text-sm rounded-lg">{{ log_error }}</div>
       {% endif %}
     </div>
+  </section>
 
-    <!-- Recent Meals -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <h2 class="text-lg font-semibold text-gray-900 mb-4">Recent Meals</h2>
-      {% if recent_meals %}
-      <div class="space-y-3">
+  <!-- ===== RECENT MEALS ===== -->
+  {% if recent_meals %}
+  <section id="meals">
+    <div class="card p-5">
+      <div class="eyebrow mb-3">Recent meals</div>
+      <div class="space-y-2">
         {% for meal in recent_meals %}
-        <div class="flex justify-between items-center py-2 border-b border-gray-100 last:border-0">
+        <div class="flex justify-between items-center py-2 border-b border-gray-50 last:border-0">
           <div>
-            <p class="text-sm text-gray-900">{{ meal.raw_text[:60] }}{% if meal.raw_text|length > 60 %}...{% endif %}</p>
-            <p class="text-xs text-gray-500">{{ meal.meal_type or 'meal' }} &middot; {{ meal.source }}</p>
+            <p class="text-sm">{{ meal.raw_text[:60] }}{% if meal.raw_text|length > 60 %}…{% endif %}</p>
+            <p class="text-xs text-faint">{{ meal.meal_type or 'meal' }} · {{ meal.source }}</p>
           </div>
-          <span class="text-sm font-medium text-gray-700">{{ meal.total_calories|int }} cal</span>
+          <span class="text-sm font-mono font-medium">{{ meal.total_calories|int }} cal</span>
         </div>
         {% endfor %}
       </div>
-      {% else %}
-      <p class="text-gray-500 text-sm">No meals logged yet. Send a meal description to your Telegram bot!</p>
-      {% endif %}
     </div>
+  </section>
+  {% endif %}
 
-    <!-- Active Goals -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <h2 class="text-lg font-semibold text-gray-900 mb-4">Active Goals</h2>
-      {% if goals %}
-      <div class="space-y-3">
-        {% for goal in goals %}
-        <div class="p-3 bg-gray-50 rounded-lg">
-          <p class="font-medium text-gray-900">{{ goal.title or goal.goal_type }}</p>
-          {% if goal.event_date %}
-          <p class="text-sm text-gray-500">{{ goal.event_name or 'Event' }} — {{ goal.event_date }}</p>
-          {% endif %}
-          {% if goal.target_weight %}
-          <p class="text-sm text-gray-500">Target: {{ goal.target_weight }} lbs</p>
-          {% endif %}
-        </div>
-        {% endfor %}
-      </div>
-      {% else %}
-      <p class="text-gray-500 text-sm">No active goals. Set up goals in your profile!</p>
-      {% endif %}
-    </div>
+  <!-- ===== GOALS ENGINE ===== -->
+  <section id="goals">
+    <div id="goalApp"></div>
+  </section>
 
-    <!-- Quick Status -->
-    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <h2 class="text-lg font-semibold text-gray-900 mb-4">Status</h2>
-      <div class="space-y-3">
-        <div class="flex justify-between items-center">
-          <span class="text-sm text-gray-600">Diet Plan</span>
-          <span class="text-sm font-medium {% if has_plan %}text-green-600{% else %}text-gray-400{% endif %}">
-            {{ "Active" if has_plan else "Not set" }}
-          </span>
-        </div>
-        <div class="flex justify-between items-center">
-          <span class="text-sm text-gray-600">Telegram</span>
-          <span class="text-sm font-medium {% if connection %}text-green-600{% else %}text-gray-400{% endif %}">
-            {{ "Connected" if connection else "Not connected" }}
-          </span>
-        </div>
-        <div class="flex justify-between items-center">
-          <span class="text-sm text-gray-600">Meals today</span>
-          <span class="text-sm font-medium text-gray-900">{{ recent_meals|length }}</span>
+  <!-- ===== TRENDS ===== -->
+  <section id="trends">
+    <div class="card p-5">
+      <div class="flex items-center justify-between mb-4">
+        <span class="eyebrow">Trends</span>
+        <div class="flex gap-1">
+          <button class="pill active" data-range="week">Week</button>
+          <button class="pill" data-range="month">Month</button>
+          <button class="pill" data-range="quarter">Quarter</button>
+          <button class="pill" data-range="year">Year</button>
         </div>
       </div>
+      <div style="height:220px">
+        <canvas id="trendChart"></canvas>
+      </div>
+      <div class="mt-4 pt-4 border-t border-gray-100" style="height:180px">
+        <div class="eyebrow mb-2">Calorie Balance</div>
+        <canvas id="calorieChart"></canvas>
+      </div>
     </div>
-  </div>
+  </section>
+
+  <!-- ===== CONSISTENCY HEATMAP ===== -->
+  <section id="consistency">
+    <div class="card p-5">
+      <div class="eyebrow mb-3">Consistency — past year</div>
+      <div id="heatmap" class="overflow-x-auto"></div>
+    </div>
+  </section>
+
 </div>
+
+<!-- ===== GOALS ENGINE JS ===== -->
+<script>
+let GOAL_STATE = {{ active_goal | tojson if active_goal else 'null' }};
+const ARCHIVED = {{ archived_goals | tojson }};
+const GOAL_STATS = {{ goal_stats | tojson }};
+const esc = s => (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const goalApp = document.getElementById("goalApp");
+
+async function gapi(path, body){
+  const r = await fetch("/goals/api/" + path, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  if(!r.ok){ const e=await r.json().catch(()=>({})); throw new Error(e.error||"Request failed"); }
+  return r.json();
+}
+
+function renderGoals(){
+  let html = '<div class="card p-5">';
+  html += '<div class="flex items-center justify-between mb-4"><span class="eyebrow">Goals</span>';
+  html += `<span class="text-xs text-faint"><b class="text-ink">${GOAL_STATS.achieved}</b> done · <b class="text-ink">${GOAL_STATS.missed}</b> missed</span>`;
+  html += '</div>';
+  html += GOAL_STATE ? goalActiveView(GOAL_STATE) : goalComposer();
+  html += goalArchive(ARCHIVED);
+  html += '</div>';
+  goalApp.innerHTML = html;
+  wireGoals();
+}
+
+function goalComposer(){
+  return `<div>
+    <p class="font-display text-lg font-semibold mb-3">What's the next thing you're chasing?</p>
+    <textarea id="goalInput" rows="3" placeholder="e.g. Run a sub-25 5K · lose 8 lb of fat · bench my bodyweight"
+      class="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none resize-vertical"></textarea>
+    <div class="flex items-center justify-between mt-3">
+      <span class="text-xs text-faint">Claude drafts a measurable goal and the steps to get there.</span>
+      <button id="buildBtn" class="px-4 py-2 bg-accent text-white text-sm font-semibold rounded-lg hover:bg-accent-press transition-colors">Build the plan</button>
+    </div>
+  </div>`;
+}
+
+function goalActiveView(g){
+  if(g.debrief_notes !== null && g.debrief_notes !== undefined && g.status === "active") return goalDebriefView(g);
+  const steps = g.steps||[];
+  const done = steps.filter(s=>s.done).length;
+  const pct = steps.length ? Math.round(done/steps.length*100) : 0;
+  const created = g.created_at ? new Date(g.created_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}) : '';
+  const stepsHtml = steps.map((s,i)=>`
+    <div class="g-step ${s.done?'done':''} flex gap-3 items-start py-2 ${i?'border-t border-gray-50':''}">
+      <span class="font-mono text-[11px] text-faint w-5 pt-0.5">${String(i+1).padStart(2,"0")}</span>
+      <button class="g-check ${s.done?'on':''}" data-check="${s.id}" aria-label="toggle">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6.2L4.7 9 10 3" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="txt text-sm">${esc(s.text)}</div>
+    </div>`).join("");
+  return `<div>
+    <h2 class="font-display text-xl font-bold mt-1">${esc(g.refined_statement)}</h2>
+    <p class="text-sm text-muted mt-1 mb-4">${esc(g.refined_why)}</p>
+    <div class="flex flex-wrap gap-5 py-3 border-y border-gray-100 mb-4 text-sm">
+      <div><span class="font-mono text-[10px] text-faint uppercase tracking-wider block mb-0.5">Target</span><span class="font-medium font-mono">${esc(g.refined_target_date)}</span></div>
+      <div><span class="font-mono text-[10px] text-faint uppercase tracking-wider block mb-0.5">Metric</span><span class="font-medium">${esc(g.refined_metric)}</span></div>
+      <div><span class="font-mono text-[10px] text-faint uppercase tracking-wider block mb-0.5">Set</span><span class="font-medium font-mono">${created}</span></div>
+    </div>
+    <div class="mb-4">
+      <div class="flex justify-between text-xs mb-1"><span class="eyebrow">Trajectory</span><span class="font-mono text-accent font-medium">${done}/${steps.length} · ${pct}%</span></div>
+      <div class="relative h-1.5 rounded-full bg-gray-100"><div class="g-fill" style="width:${pct}%"></div></div>
+    </div>
+    <div>${stepsHtml}</div>
+    <div class="flex gap-2 mt-4">
+      <button id="achieveBtn" class="px-4 py-2 bg-good text-white text-sm font-semibold rounded-lg hover:brightness-95 transition">Mark as achieved</button>
+      <button id="missBtn" class="px-4 py-2 text-miss border border-gray-200 text-sm font-semibold rounded-lg hover:border-miss hover:bg-warm-soft transition">I missed this</button>
+    </div>
+  </div>`;
+}
+
+function goalDebriefView(g){
+  const intro = g.debrief;
+  if(intro) return `<div class="g-debrief rounded-xl p-5 -mx-5 -mb-5 mt-2">
+    <span class="eyebrow text-amber">Debrief — missed goal</span>
+    <h2 class="font-display text-lg font-bold mt-2">${esc(g.refined_statement)}</h2>
+    <div class="mt-4"><div class="font-mono text-[11px] text-amber uppercase tracking-wider mb-2">Why it slipped</div>
+    ${intro.reasons.map(x=>`<div class="flex gap-2 text-sm py-1"><span class="text-amber font-bold">—</span><span>${esc(x)}</span></div>`).join("")}
+    <div class="font-mono text-[11px] text-amber uppercase tracking-wider mt-4 mb-2">What to change</div>
+    ${intro.improvements.map(x=>`<div class="flex gap-2 text-sm py-1"><span class="text-amber font-bold">→</span><span>${esc(x)}</span></div>`).join("")}
+    <div class="mt-4 p-3 bg-white/80 rounded-lg border border-amber/20"><span class="font-mono text-[10px] text-amber uppercase tracking-wider block mb-1">Next move this week</span><span class="text-sm">${esc(intro.nextMove)}</span></div>
+    <div class="flex gap-2 mt-4">
+      <button id="reviseBtn" class="px-4 py-2 bg-accent text-white text-sm font-semibold rounded-lg hover:bg-accent-press transition">Draft a revised goal</button>
+      <button id="archiveMissBtn" class="px-4 py-2 text-muted text-sm font-medium hover:bg-gray-100 rounded-lg transition">Archive &amp; move on</button>
+    </div></div></div>`;
+  return `<div class="g-debrief rounded-xl p-5 -mx-5 -mb-5 mt-2">
+    <span class="eyebrow text-amber">Debrief — missed goal</span>
+    <h2 class="font-display text-lg font-bold mt-2">${esc(g.refined_statement)}</h2>
+    <textarea id="debriefNotes" rows="3" placeholder="What actually got in the way? Be honest…"
+      class="w-full mt-3 px-3 py-2.5 border border-amber/30 rounded-lg text-sm bg-white/80 focus:ring-2 focus:ring-amber/20 focus:border-amber outline-none resize-vertical"></textarea>
+    <div class="flex items-center justify-between mt-3">
+      <span class="text-xs text-amber/70">Claude runs an honest post-mortem.</span>
+      <button id="runIntroBtn" class="px-4 py-2 bg-accent text-white text-sm font-semibold rounded-lg hover:bg-accent-press transition">Run the debrief</button>
+    </div>
+  </div>`;
+}
+
+function goalArchive(arch){
+  if(!arch.length) return "";
+  return `<div class="mt-6 pt-4 border-t border-gray-100">
+    <div class="eyebrow mb-3">History</div>
+    ${arch.map(g=>{
+      const cls=g.status==="achieved"?"bg-good-soft text-good":"bg-warm-soft text-miss";
+      const label=g.status==="achieved"?"done":"missed";
+      const d=g.closed_at?new Date(g.closed_at).toLocaleDateString(undefined,{month:'short',day:'numeric'}):'';
+      return `<div class="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0">
+        <span class="font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full ${cls}">${label}</span>
+        <span class="text-sm font-medium flex-1 truncate">${esc(g.refined_statement||g.title||'')}</span>
+        <span class="font-mono text-[11px] text-faint">${d}</span>
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+function wireGoals(){
+  const buildBtn=document.getElementById("buildBtn");
+  if(buildBtn) buildBtn.onclick=async()=>{
+    const v=document.getElementById("goalInput").value.trim(); if(!v) return;
+    buildBtn.disabled=true; buildBtn.innerHTML=`<span class="g-spin"></span> Drafting`;
+    try{ await gapi("build-plan",{text:v}); window.location.reload(); }
+    catch(e){ buildBtn.disabled=false; buildBtn.textContent="Try again"; }
+  };
+  document.querySelectorAll("[data-check]").forEach(b=>{
+    b.onclick=async()=>{
+      const id=b.getAttribute("data-check");
+      try{ const d=await gapi("toggle-step",{goal_id:GOAL_STATE.goal_id,step_id:id}); GOAL_STATE.steps=d.steps; renderGoals(); }
+      catch(e){ console.error(e); }
+    };
+  });
+  const achieve=document.getElementById("achieveBtn");
+  if(achieve) achieve.onclick=async()=>{ await gapi("achieve",{goal_id:GOAL_STATE.goal_id}); window.location.reload(); };
+  const miss=document.getElementById("missBtn");
+  if(miss) miss.onclick=async()=>{ await gapi("miss",{goal_id:GOAL_STATE.goal_id}); GOAL_STATE.debrief_notes=""; GOAL_STATE.debrief=null; renderGoals(); };
+  const runIntro=document.getElementById("runIntroBtn");
+  if(runIntro) runIntro.onclick=async()=>{
+    const notes=(document.getElementById("debriefNotes").value||"").trim();
+    runIntro.disabled=true; runIntro.innerHTML=`<span class="g-spin"></span> Thinking`;
+    try{ const d=await gapi("debrief",{goal_id:GOAL_STATE.goal_id,notes}); GOAL_STATE.debrief=d.debrief; renderGoals(); }
+    catch(e){ runIntro.disabled=false; runIntro.textContent="Try again"; }
+  };
+  const archiveMiss=document.getElementById("archiveMissBtn");
+  if(archiveMiss) archiveMiss.onclick=async()=>{ await gapi("archive-miss",{goal_id:GOAL_STATE.goal_id}); window.location.reload(); };
+  const revise=document.getElementById("reviseBtn");
+  if(revise) revise.onclick=async()=>{
+    const raw=GOAL_STATE.raw_input||'';
+    await gapi("archive-miss",{goal_id:GOAL_STATE.goal_id});
+    GOAL_STATE=null; renderGoals();
+    setTimeout(()=>{ const ta=document.getElementById("goalInput"); if(ta){ta.value=raw;ta.focus();} },50);
+  };
+}
+renderGoals();
+</script>
+
+<!-- ===== TRENDS CHARTS JS ===== -->
+<script>
+const WEIGHT_DATA = {{ weight_history | tojson }};
+const CALORIE_DATA = {{ calorie_history | tojson }};
+const HEATMAP_DATA = {{ heatmap_data | tojson }};
+
+// Weight trend chart
+const trendCtx = document.getElementById('trendChart').getContext('2d');
+let trendChart = new Chart(trendCtx, {
+  type: 'line',
+  data: {
+    labels: WEIGHT_DATA.map(d => d.date),
+    datasets: [
+      {label:'Smoothed', data: WEIGHT_DATA.map(d => d.smoothed), borderColor:'#2D52F5', borderWidth:2, pointRadius:0, tension:.3},
+      {label:'Raw', data: WEIGHT_DATA.map(d => d.raw), borderColor:'#E6E8EE', borderWidth:1, pointRadius:2, pointBackgroundColor:'#9aa1b0', tension:0},
+    ]
+  },
+  options: {responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
+    scales:{x:{display:true,ticks:{maxTicksLimit:6,font:{size:10,family:'JetBrains Mono'}}},y:{ticks:{font:{size:10,family:'JetBrains Mono'}}}}}
+});
+
+// Calorie balance chart
+const calCtx = document.getElementById('calorieChart').getContext('2d');
+let calChart = new Chart(calCtx, {
+  type: 'bar',
+  data: {
+    labels: CALORIE_DATA.map(d => d.date),
+    datasets: [{label:'Intake', data: CALORIE_DATA.map(d => d.calories), backgroundColor: CALORIE_DATA.map(d => d.calories > (d.target||2000) ? '#E0433880' : '#2D52F580'), borderRadius:4}]
+  },
+  options: {responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
+    scales:{x:{ticks:{maxTicksLimit:7,font:{size:10,family:'JetBrains Mono'}}},y:{ticks:{font:{size:10,family:'JetBrains Mono'}}}}}
+});
+
+// Timeframe switching
+document.querySelectorAll('[data-range]').forEach(btn=>{
+  btn.onclick=()=>{
+    document.querySelectorAll('[data-range]').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    fetch(`/api/trends?range=${btn.dataset.range}`).then(r=>r.json()).then(data=>{
+      trendChart.data.labels=data.weight.map(d=>d.date);
+      trendChart.data.datasets[0].data=data.weight.map(d=>d.smoothed);
+      trendChart.data.datasets[1].data=data.weight.map(d=>d.raw);
+      trendChart.update();
+      calChart.data.labels=data.calories.map(d=>d.date);
+      calChart.data.datasets[0].data=data.calories.map(d=>d.calories);
+      calChart.data.datasets[0].backgroundColor=data.calories.map(d=>d.calories>(d.target||2000)?'#E0433880':'#2D52F580');
+      calChart.update();
+    });
+  };
+});
+
+// Consistency heatmap
+(function(){
+  const container=document.getElementById('heatmap');
+  if(!HEATMAP_DATA.length){container.innerHTML='<p class="text-sm text-faint">Start logging to see your consistency.</p>';return;}
+  const byDate={};
+  HEATMAP_DATA.forEach(d=>{byDate[d.date]=d.count;});
+  const today=new Date();
+  const start=new Date(today);
+  start.setDate(start.getDate()-364);
+  let html='<div style="display:flex;gap:2px;flex-wrap:wrap">';
+  for(let d=new Date(start);d<=today;d.setDate(d.getDate()+1)){
+    const ds=d.toISOString().slice(0,10);
+    const c=byDate[ds]||0;
+    const color=c===0?'#EFF1F5':c===1?'#c7d0ff':c>=2?'#2D52F5':'#EFF1F5';
+    html+=`<div title="${ds}: ${c} entries" style="width:10px;height:10px;border-radius:2px;background:${color}"></div>`;
+  }
+  html+='</div>';
+  container.innerHTML=html;
+})();
+</script>
 {% endblock %}
