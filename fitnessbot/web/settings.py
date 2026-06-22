@@ -111,6 +111,7 @@ async def settings_page(request: Request):
 
     providers = _build_provider_display(uid, user)
     has_system_key = bool(Config.ANTHROPIC_API_KEY)
+    notif_prefs = db.get_notification_preferences(uid)
 
     return templates.TemplateResponse(
         "settings.html",
@@ -120,6 +121,7 @@ async def settings_page(request: Request):
             "connection": conn_display,
             "providers": providers,
             "has_system_key": has_system_key,
+            "notif": notif_prefs,
         },
     )
 
@@ -214,6 +216,38 @@ async def disconnect_telegram(request: Request):
     db.delete_telegram_connection(user["user_id"])
 
     return RedirectResponse("/settings?saved=telegram_disconnected", status_code=303)
+
+
+@router.post("/settings/notifications")
+async def save_notifications(
+    request: Request,
+    morning_brief_enabled: str = Form("0"),
+    morning_brief_time: str = Form("07:30"),
+    midday_check_enabled: str = Form("0"),
+    midday_check_time: str = Form("13:00"),
+    evening_wrap_enabled: str = Form("0"),
+    evening_wrap_time: str = Form("20:30"),
+    weekly_rollup_enabled: str = Form("0"),
+    weekly_rollup_day: str = Form("6"),
+    activity_prompts_enabled: str = Form("0"),
+):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+
+    db.upsert_notification_preferences(
+        user["user_id"],
+        morning_brief_enabled=int(morning_brief_enabled),
+        morning_brief_time=morning_brief_time.strip() or "07:30",
+        midday_check_enabled=int(midday_check_enabled),
+        midday_check_time=midday_check_time.strip() or "13:00",
+        evening_wrap_enabled=int(evening_wrap_enabled),
+        evening_wrap_time=evening_wrap_time.strip() or "20:30",
+        weekly_rollup_enabled=int(weekly_rollup_enabled),
+        weekly_rollup_day=int(weekly_rollup_day) if weekly_rollup_day.strip() else 6,
+        activity_prompts_enabled=int(activity_prompts_enabled),
+    )
+    return RedirectResponse("/settings?saved=notifications", status_code=303)
 
 
 @router.post("/settings/provider")

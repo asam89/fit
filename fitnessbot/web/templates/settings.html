@@ -21,6 +21,7 @@
     {% elif saved == 'provider' %}API key saved and validated.
     {% elif saved == 'activated' %}Provider activated.
     {% elif saved == 'removed' %}API key removed.
+    {% elif saved == 'notifications' %}Notification preferences saved.
     {% else %}Saved.{% endif %}
   </div>
   {% endif %}
@@ -239,6 +240,123 @@
       </form>
       {% endif %}
     </div>
+  </section>
+
+  <!-- Notifications -->
+  <section class="bg-white border border-gray-200 rounded-xl shadow-sm">
+    <div class="px-6 py-4 border-b border-gray-100">
+      <h2 class="font-display text-lg font-semibold">Notifications</h2>
+      <p class="text-xs text-muted mt-1">Control when and how the bot sends check-ins to Telegram.</p>
+    </div>
+    <form method="post" action="/settings/notifications" class="px-6 py-5 space-y-5">
+      <!-- Morning Brief -->
+      <div class="flex items-start gap-4 p-4 rounded-lg border border-gray-100 hover:border-gray-200 transition-colors">
+        <div class="pt-0.5">
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="hidden" name="morning_brief_enabled" value="0">
+            <input type="checkbox" name="morning_brief_enabled" value="1" class="sr-only peer" {{ 'checked' if notif.morning_brief_enabled }}>
+            <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent"></div>
+          </label>
+        </div>
+        <div class="flex-1">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="text-sm font-medium">Morning Brief</span>
+              <p class="text-xs text-muted mt-0.5">Today's targets, weight trend, planned activities</p>
+            </div>
+            <input type="time" name="morning_brief_time" value="{{ notif.morning_brief_time }}"
+                   class="px-2 py-1 border border-gray-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none w-24">
+          </div>
+        </div>
+      </div>
+
+      <!-- Midday Check -->
+      <div class="flex items-start gap-4 p-4 rounded-lg border border-gray-100 hover:border-gray-200 transition-colors">
+        <div class="pt-0.5">
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="hidden" name="midday_check_enabled" value="0">
+            <input type="checkbox" name="midday_check_enabled" value="1" class="sr-only peer" {{ 'checked' if notif.midday_check_enabled }}>
+            <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent"></div>
+          </label>
+        </div>
+        <div class="flex-1">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="text-sm font-medium">Midday Check</span>
+              <p class="text-xs text-muted mt-0.5">Intake pace, meals logged, macro balance</p>
+            </div>
+            <input type="time" name="midday_check_time" value="{{ notif.midday_check_time }}"
+                   class="px-2 py-1 border border-gray-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none w-24">
+          </div>
+        </div>
+      </div>
+
+      <!-- Evening Wrap -->
+      <div class="flex items-start gap-4 p-4 rounded-lg border border-gray-100 hover:border-gray-200 transition-colors">
+        <div class="pt-0.5">
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="hidden" name="evening_wrap_enabled" value="0">
+            <input type="checkbox" name="evening_wrap_enabled" value="1" class="sr-only peer" {{ 'checked' if notif.evening_wrap_enabled }}>
+            <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent"></div>
+          </label>
+        </div>
+        <div class="flex-1">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="text-sm font-medium">Evening Wrap</span>
+              <p class="text-xs text-muted mt-0.5">Full macro summary, training adherence, nudges</p>
+            </div>
+            <input type="time" name="evening_wrap_time" value="{{ notif.evening_wrap_time }}"
+                   class="px-2 py-1 border border-gray-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none w-24">
+          </div>
+        </div>
+      </div>
+
+      <!-- Weekly Rollup -->
+      <div class="flex items-start gap-4 p-4 rounded-lg border border-gray-100 hover:border-gray-200 transition-colors">
+        <div class="pt-0.5">
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="hidden" name="weekly_rollup_enabled" value="0">
+            <input type="checkbox" name="weekly_rollup_enabled" value="1" class="sr-only peer" {{ 'checked' if notif.weekly_rollup_enabled }}>
+            <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent"></div>
+          </label>
+        </div>
+        <div class="flex-1">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="text-sm font-medium">Weekly Rollup</span>
+              <p class="text-xs text-muted mt-0.5">Week summary with avg intake, weight change, training adherence</p>
+            </div>
+            <select name="weekly_rollup_day" class="px-2 py-1 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none w-28">
+              <option value="0" {{ 'selected' if notif.weekly_rollup_day == 0 }}>Monday</option>
+              <option value="1" {{ 'selected' if notif.weekly_rollup_day == 1 }}>Tuesday</option>
+              <option value="2" {{ 'selected' if notif.weekly_rollup_day == 2 }}>Wednesday</option>
+              <option value="3" {{ 'selected' if notif.weekly_rollup_day == 3 }}>Thursday</option>
+              <option value="4" {{ 'selected' if notif.weekly_rollup_day == 4 }}>Friday</option>
+              <option value="5" {{ 'selected' if notif.weekly_rollup_day == 5 }}>Saturday</option>
+              <option value="6" {{ 'selected' if notif.weekly_rollup_day == 6 }}>Sunday</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Activity Prompts -->
+      <div class="flex items-start gap-4 p-4 rounded-lg border border-gray-100 hover:border-gray-200 transition-colors">
+        <div class="pt-0.5">
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="hidden" name="activity_prompts_enabled" value="0">
+            <input type="checkbox" name="activity_prompts_enabled" value="1" class="sr-only peer" {{ 'checked' if notif.activity_prompts_enabled }}>
+            <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent"></div>
+          </label>
+        </div>
+        <div class="flex-1">
+          <span class="text-sm font-medium">Smart Activity Prompts</span>
+          <p class="text-xs text-muted mt-0.5">Prompt your planned activities, suggest activities you haven't done recently, and adapt messages based on your training patterns</p>
+        </div>
+      </div>
+
+      <button type="submit" class="px-5 py-2.5 bg-accent text-white text-sm font-semibold rounded-lg hover:bg-accent-press transition-colors">Save Preferences</button>
+    </form>
   </section>
 
   <!-- Data -->

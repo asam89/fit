@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 SCHEMA_SQL = """
 -- users
@@ -402,6 +402,22 @@ CREATE TABLE IF NOT EXISTS intake_sessions (
     answers_captured INTEGER NOT NULL DEFAULT 0
 );
 
+-- notification_preferences
+CREATE TABLE IF NOT EXISTS notification_preferences (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL UNIQUE REFERENCES users(user_id) ON DELETE CASCADE,
+    morning_brief_enabled INTEGER NOT NULL DEFAULT 1,
+    morning_brief_time TEXT NOT NULL DEFAULT '07:30',
+    midday_check_enabled INTEGER NOT NULL DEFAULT 1,
+    midday_check_time TEXT NOT NULL DEFAULT '13:00',
+    evening_wrap_enabled INTEGER NOT NULL DEFAULT 1,
+    evening_wrap_time TEXT NOT NULL DEFAULT '20:30',
+    weekly_rollup_enabled INTEGER NOT NULL DEFAULT 1,
+    weekly_rollup_day INTEGER NOT NULL DEFAULT 6,
+    activity_prompts_enabled INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+
 -- schema_version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
@@ -643,6 +659,25 @@ def run_migrations() -> None:
             except sqlite3.OperationalError:
                 pass
             conn.execute("INSERT INTO schema_version (version) VALUES (9)")
+            conn.commit()
+            current = 9
+
+        if current < 10:
+            conn.execute("""CREATE TABLE IF NOT EXISTS notification_preferences (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL UNIQUE REFERENCES users(user_id) ON DELETE CASCADE,
+                morning_brief_enabled INTEGER NOT NULL DEFAULT 1,
+                morning_brief_time TEXT NOT NULL DEFAULT '07:30',
+                midday_check_enabled INTEGER NOT NULL DEFAULT 1,
+                midday_check_time TEXT NOT NULL DEFAULT '13:00',
+                evening_wrap_enabled INTEGER NOT NULL DEFAULT 1,
+                evening_wrap_time TEXT NOT NULL DEFAULT '20:30',
+                weekly_rollup_enabled INTEGER NOT NULL DEFAULT 1,
+                weekly_rollup_day INTEGER NOT NULL DEFAULT 6,
+                activity_prompts_enabled INTEGER NOT NULL DEFAULT 1,
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))
+            """)
+            conn.execute("INSERT INTO schema_version (version) VALUES (10)")
             conn.commit()
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
@@ -1470,6 +1505,83 @@ def get_briefings_sent_today(user_id: int, briefing_type: str) -> int:
             (user_id, briefing_type),
         ).fetchone()
         return row["c"]
+    finally:
+        conn.close()
+
+
+def get_notification_preferences(user_id: int) -> dict:
+    defaults = {
+        "morning_brief_enabled": 1, "morning_brief_time": "07:30",
+        "midday_check_enabled": 1, "midday_check_time": "13:00",
+        "evening_wrap_enabled": 1, "evening_wrap_time": "20:30",
+        "weekly_rollup_enabled": 1, "weekly_rollup_day": 6,
+        "activity_prompts_enabled": 1,
+    }
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM notification_preferences WHERE user_id = ?", (user_id,)).fetchone()
+        if row:
+            return dict(row)
+        return {"user_id": user_id, **defaults}
+    except Exception:
+        return {"user_id": user_id, **defaults}
+    finally:
+        conn.close()
+
+
+def upsert_notification_preferences(user_id: int, **kwargs) -> None:
+    conn = get_connection()
+    try:
+        existing = conn.execute("SELECT id FROM notification_preferences WHERE user_id = ?", (user_id,)).fetchone()
+        if existing:
+            sets = ", ".join(f"{k} = ?" for k in kwargs)
+            vals = list(kwargs.values()) + [utcnow(), user_id]
+            conn.execute(f"UPDATE notification_preferences SET {sets}, updated_at = ? WHERE user_id = ?", vals)
+        else:
+            cols = ["user_id"] + list(kwargs.keys())
+            placeholders = ", ".join(["?"] * len(cols))
+            conn.execute(
+                f"INSERT INTO notification_preferences ({', '.join(cols)}) VALUES ({placeholders})",
+                [user_id] + list(kwargs.values()),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_activity_patterns(user_id: int, lookback_days: int = 60) -> list[dict]:
+    """Analyze workout + plan history to find common activities by day of week."""
+    conn = get_connection()
+    try:
+        rows = conn.execute("""
+            SELECT activity_type, title, day_of_week, COUNT(*) as freq,
+                   AVG(planned_duration_min) as avg_duration,
+                   MAX(date) as last_date
+            FROM training_plan_items
+            WHERE user_id = ? AND date >= date('now', ?)
+            GROUP BY activity_type, title, day_of_week
+            ORDER BY freq DESC
+        """, (user_id, f"-{lookback_days} days")).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_stale_activities(user_id: int, min_freq: int = 2, stale_days: int = 10) -> list[dict]:
+    """Find activities the user used to do regularly but hasn't done recently."""
+    conn = get_connection()
+    try:
+        rows = conn.execute("""
+            SELECT activity_type, title, COUNT(*) as freq,
+                   MAX(date) as last_date,
+                   julianday('now') - julianday(MAX(date)) as days_since
+            FROM training_plan_items
+            WHERE user_id = ? AND status IN ('completed', 'planned')
+            GROUP BY activity_type, title
+            HAVING freq >= ? AND days_since >= ?
+            ORDER BY days_since DESC
+        """, (user_id, min_freq, stale_days)).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
 
