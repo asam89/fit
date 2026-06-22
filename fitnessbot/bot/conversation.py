@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 NLU_SYSTEM = """You are an intent classifier for a fitness tracking bot. Given a user message, extract ALL intents and structured data.
 
 Return ONLY a JSON object with key "intents" — an array of objects, each with:
-- "type": one of meal_log, health_metric, workout_log, profile_update, goal_update, query, correction, general
+- "type": one of meal_log, health_metric, workout_log, profile_update, goal_update, plan_set, plan_complete, query, correction, general
 - "confidence": 0.0-1.0
 - Fields specific to the type:
   - meal_log: "items" (array of {name, qty, unit}), "meal_type" (breakfast/lunch/dinner/snack), "when" (now/this_morning/last_night)
@@ -26,6 +26,8 @@ Return ONLY a JSON object with key "intents" — an array of objects, each with:
   - workout_log: "activity" (strength/cardio/mixed/yoga/etc), "duration_min", "notes"
   - profile_update: "field" (age/height/sex/units/activity_level), "value"
   - goal_update: "goal_type" (lose/gain/maintain), "target_weight", "target_date"
+  - plan_set: "activities" (array of {day: "monday"..."sunday", title: str, type: "strength"/"run"/"cardio"/"mobility"/"sport"/"rest"/"other", duration: int|null})
+  - plan_complete: "title_hint" (what activity to mark done, e.g. "basketball", "legs"), "actual_duration": int|null
   - query: "question"
   - correction: "what" (description of what to fix), "new_value"
   - general: "text"
@@ -150,6 +152,10 @@ def _act_on_intents(intents: list[dict], user_id: int, raw_text: str) -> list[di
                 r = _act_profile(intent, user_id)
             elif itype == "goal_update":
                 r = _act_goal(intent, user_id)
+            elif itype == "plan_set":
+                r = _act_plan_set(intent, user_id)
+            elif itype == "plan_complete":
+                r = _act_plan_complete(intent, user_id)
             elif itype == "query":
                 r = _act_query(user_id)
             elif itype == "correction":
@@ -260,6 +266,44 @@ def _act_profile(intent: dict, user_id: int) -> dict:
 
 def _act_goal(intent: dict, user_id: int) -> dict:
     return {"action": "goal_noted", "details": intent}
+
+
+def _act_plan_set(intent: dict, user_id: int) -> dict:
+    from fitnessbot import training_plan
+    activities = intent.get("activities", [])
+    if not activities:
+        return {"action": "plan_empty", "note": "No activities parsed"}
+    result = training_plan.set_plan_from_text(user_id, activities)
+    return {
+        "action": "plan_set",
+        "added": result["added"],
+        "week_start": result["week_start"],
+    }
+
+
+def _act_plan_complete(intent: dict, user_id: int) -> dict:
+    from fitnessbot import training_plan
+    title_hint = intent.get("title_hint", "")
+    actual_duration = intent.get("actual_duration")
+    if not title_hint:
+        return {"action": "plan_complete_failed", "note": "No activity specified"}
+    result = training_plan.complete_by_title(user_id, title_hint, actual_duration)
+    if result:
+        return {
+            "action": "plan_completed",
+            "title": result["title"],
+            "activity_type": result["activity_type"],
+            "item_id": result["item_id"],
+        }
+    # No matching planned item — log as a workout anyway
+    from fitnessbot import db as _db
+    data = json.dumps({"type": "other", "activity": title_hint, "duration_min": actual_duration, "source": "voice"})
+    _db.insert_health_data(user_id, "workout", data, notes=f"Workout: {title_hint}")
+    return {
+        "action": "workout_logged_no_plan",
+        "activity": title_hint,
+        "duration_min": actual_duration,
+    }
 
 
 def _act_query(user_id: int) -> dict:
@@ -433,6 +477,12 @@ def _deterministic_confirmation(act_results: list[dict], user_id: int) -> str:
             parts.append(f"Updated {r['field']} to {r['value']}.")
         elif action == "correction_applied":
             parts.append(f"Corrected last meal \u2014 now {r['new_calories']:.0f} cal, {r['new_protein']:.0f}g protein.")
+        elif action == "plan_set":
+            parts.append(f"Added {r['added']} activities to this week's plan.")
+        elif action == "plan_completed":
+            parts.append(f"\u2713 {r['title']} marked done!")
+        elif action == "workout_logged_no_plan":
+            parts.append(f"Logged {r['activity']}" + (f" ({r['duration_min']}min)" if r.get('duration_min') else "") + ". No matching plan item — want me to add it?")
         elif action == "parse_failed":
             parts.append("Couldn't parse that meal. Try being more specific.")
         elif action == "query":

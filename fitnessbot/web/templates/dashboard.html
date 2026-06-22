@@ -292,6 +292,47 @@
   </section>
   {% endif %}
 
+  <!-- ===== WEEKLY TRAINING PLAN ===== -->
+  <section id="training-plan">
+    <div class="card p-5">
+      <div class="flex items-center justify-between mb-3">
+        <span class="eyebrow">Training Plan</span>
+        <div class="flex items-center gap-2">
+          <button id="planPrev" class="text-xs text-faint hover:text-ink px-1">&laquo; Prev</button>
+          <span id="planWeekLabel" class="text-xs font-mono text-muted"></span>
+          <button id="planNext" class="text-xs text-faint hover:text-ink px-1">Next &raquo;</button>
+        </div>
+      </div>
+      <div id="planAdherence" class="text-xs text-muted mb-3"></div>
+      <div id="planGrid" class="grid grid-cols-7 gap-1 text-xs"></div>
+      <div class="flex gap-2 mt-3 pt-3 border-t border-gray-100">
+        <button id="planAddBtn" class="text-xs font-medium text-accent hover:text-accent-press">+ Add activity</button>
+        <button id="planCopyBtn" class="text-xs text-faint hover:text-muted ml-auto">Copy last week</button>
+      </div>
+      <!-- Add activity modal -->
+      <div id="planAddModal" class="hidden mt-3 p-3 bg-gray-50 rounded-lg">
+        <div class="grid grid-cols-2 gap-2 mb-2">
+          <select id="planAddDay" class="text-xs border rounded px-2 py-1">
+            <option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option>
+            <option value="3">Thursday</option><option value="4">Friday</option><option value="5">Saturday</option><option value="6">Sunday</option>
+          </select>
+          <select id="planAddType" class="text-xs border rounded px-2 py-1">
+            <option value="strength">Strength</option><option value="run">Run</option><option value="cardio">Cardio</option>
+            <option value="mobility">Mobility</option><option value="sport">Sport</option><option value="rest">Rest</option><option value="other">Other</option>
+          </select>
+        </div>
+        <div class="grid grid-cols-2 gap-2 mb-2">
+          <input id="planAddTitle" type="text" placeholder="Title (e.g. Legs)" class="text-xs border rounded px-2 py-1">
+          <input id="planAddDuration" type="number" placeholder="Duration (min)" class="text-xs border rounded px-2 py-1">
+        </div>
+        <div class="flex gap-2">
+          <button id="planAddSave" class="text-xs font-medium bg-accent text-white px-3 py-1 rounded hover:bg-accent-press">Save</button>
+          <button id="planAddCancel" class="text-xs text-faint hover:text-muted px-2 py-1">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ===== RECENT MEALS ===== -->
   {% if recent_meals %}
   <section id="meals">
@@ -663,6 +704,143 @@ document.querySelectorAll('[data-range]').forEach(btn=>{
       alert('Error saving answer');
     }
   }
+})();
+</script>
+
+<!-- ===== TRAINING PLAN JS ===== -->
+<script>
+(function(){
+  const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const ICONS = {strength:'\uD83D\uDCAA',run:'\uD83C\uDFC3',cardio:'\u2764\uFE0F',mobility:'\uD83E\uDDD8',sport:'\u26BD',rest:'\uD83D\uDCA4',other:'\u2B50'};
+  const grid = document.getElementById('planGrid');
+  const label = document.getElementById('planWeekLabel');
+  const adherenceEl = document.getElementById('planAdherence');
+  const addModal = document.getElementById('planAddModal');
+  let currentWeek = null;
+
+  function mondayOfWeek(d){
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day===0 ? -6 : 1);
+    const mon = new Date(d);
+    mon.setDate(diff);
+    return mon.toISOString().slice(0,10);
+  }
+
+  function shiftWeek(offset){
+    const d = new Date(currentWeek + 'T00:00:00');
+    d.setDate(d.getDate() + offset*7);
+    currentWeek = d.toISOString().slice(0,10);
+    loadPlan();
+  }
+
+  async function loadPlan(){
+    if(!currentWeek) currentWeek = mondayOfWeek(new Date());
+    try{
+      const r = await fetch('/api/plan?week='+currentWeek);
+      const data = await r.json();
+      renderPlan(data);
+    }catch(e){
+      grid.innerHTML='<p class="col-span-7 text-faint text-xs">Could not load plan</p>';
+    }
+  }
+
+  function renderPlan(data){
+    label.textContent = data.week_label;
+    const adh = data.adherence;
+    adherenceEl.innerHTML = adh.total > 0
+      ? `<span class="font-medium">${adh.label}</span> activities completed${adh.rest_days?' · '+adh.rest_days+' rest day'+(adh.rest_days>1?'s':''):''}`
+      : 'No activities planned yet';
+
+    const today = new Date().toISOString().slice(0,10);
+    const ws = new Date(data.week_start+'T00:00:00');
+
+    let html = '';
+    for(let i=0;i<7;i++){
+      const dayDate = new Date(ws);
+      dayDate.setDate(ws.getDate()+i);
+      const dStr = dayDate.toISOString().slice(0,10);
+      const isToday = dStr === today;
+      const dayItems = data.items.filter(it => it.date === dStr);
+
+      html += `<div class="p-1.5 rounded ${isToday?'bg-accent/5 ring-1 ring-accent/20':'bg-gray-50'} min-h-[80px]">`;
+      html += `<div class="font-mono text-[10px] ${isToday?'text-accent font-bold':'text-faint'} mb-1">${DAYS[i]}</div>`;
+
+      if(dayItems.length === 0){
+        html += `<div class="text-[10px] text-faint italic">—</div>`;
+      } else {
+        dayItems.forEach(item => {
+          const icon = ICONS[item.activity_type]||'\u2B50';
+          let cls = 'text-ink';
+          let mark = '';
+          if(item.display_status==='completed'){cls='text-good line-through';mark=' \u2713';}
+          else if(item.display_status==='missed'){cls='text-miss';mark=' \u2717';}
+          const dur = item.planned_duration_min ? ` <span class="text-faint">${item.planned_duration_min}m</span>` : '';
+
+          html += `<div class="flex items-center gap-0.5 mb-0.5 cursor-pointer group ${cls}" data-item="${item.item_id}">`;
+          html += `<span class="text-[10px]">${icon}</span>`;
+          html += `<span class="text-[10px] truncate flex-1">${item.title}${dur}${mark}</span>`;
+          if(item.display_status!=='missed'){
+            html += `<button class="plan-complete-btn opacity-0 group-hover:opacity-100 text-[9px] ${item.status==='completed'?'text-good':'text-accent'}" data-id="${item.item_id}">${item.status==='completed'?'\u21A9':'\u2713'}</button>`;
+          }
+          html += `<button class="plan-del-btn opacity-0 group-hover:opacity-100 text-[9px] text-miss ml-0.5" data-id="${item.item_id}">\u2715</button>`;
+          html += `</div>`;
+        });
+      }
+      html += '</div>';
+    }
+    grid.innerHTML = html;
+
+    grid.querySelectorAll('.plan-complete-btn').forEach(btn => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        await fetch('/api/plan/item/'+btn.dataset.id+'/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+        loadPlan();
+      };
+    });
+    grid.querySelectorAll('.plan-del-btn').forEach(btn => {
+      btn.onclick = async (e) => {
+        e.stopPropagation();
+        await fetch('/api/plan/item/'+btn.dataset.id,{method:'DELETE'});
+        loadPlan();
+      };
+    });
+  }
+
+  document.getElementById('planPrev').onclick = () => shiftWeek(-1);
+  document.getElementById('planNext').onclick = () => shiftWeek(1);
+
+  document.getElementById('planAddBtn').onclick = () => {
+    addModal.classList.toggle('hidden');
+  };
+  document.getElementById('planAddCancel').onclick = () => {
+    addModal.classList.add('hidden');
+  };
+  document.getElementById('planAddSave').onclick = async () => {
+    const dayOffset = parseInt(document.getElementById('planAddDay').value);
+    const ws = new Date(currentWeek+'T00:00:00');
+    const targetDate = new Date(ws);
+    targetDate.setDate(ws.getDate()+dayOffset);
+    const dateStr = targetDate.toISOString().slice(0,10);
+
+    const body = {
+      date: dateStr,
+      activity_type: document.getElementById('planAddType').value,
+      title: document.getElementById('planAddTitle').value || document.getElementById('planAddType').value,
+      duration_min: parseInt(document.getElementById('planAddDuration').value) || null,
+    };
+    await fetch('/api/plan/item',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    addModal.classList.add('hidden');
+    document.getElementById('planAddTitle').value='';
+    document.getElementById('planAddDuration').value='';
+    loadPlan();
+  };
+
+  document.getElementById('planCopyBtn').onclick = async () => {
+    await fetch('/api/plan/copy-last-week',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({week_start:currentWeek})});
+    loadPlan();
+  };
+
+  loadPlan();
 })();
 </script>
 {% endblock %}

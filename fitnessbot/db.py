@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 SCHEMA_SQL = """
 -- users
@@ -589,6 +589,40 @@ def run_migrations() -> None:
                 except sqlite3.OperationalError:
                     pass
             conn.execute("INSERT INTO schema_version (version) VALUES (7)")
+            conn.commit()
+            current = 7
+
+        if current < 8:
+            for sql in [
+                """CREATE TABLE IF NOT EXISTS training_plans (
+                    plan_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                    week_start TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                    UNIQUE(user_id, week_start))""",
+                """CREATE TABLE IF NOT EXISTS training_plan_items (
+                    item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    plan_id INTEGER NOT NULL REFERENCES training_plans(plan_id) ON DELETE CASCADE,
+                    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                    date TEXT NOT NULL,
+                    day_of_week INTEGER NOT NULL,
+                    activity_type TEXT NOT NULL DEFAULT 'other',
+                    title TEXT NOT NULL,
+                    planned_duration_min INTEGER,
+                    notes TEXT,
+                    position INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'planned',
+                    completed_at TEXT,
+                    linked_exercise_id INTEGER)""",
+                "CREATE INDEX IF NOT EXISTS idx_tpi_user_date ON training_plan_items(user_id, date)",
+                "CREATE INDEX IF NOT EXISTS idx_tpi_plan ON training_plan_items(plan_id)",
+            ]:
+                try:
+                    conn.execute(sql)
+                except sqlite3.OperationalError:
+                    pass
+            conn.execute("INSERT INTO schema_version (version) VALUES (8)")
             conn.commit()
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it

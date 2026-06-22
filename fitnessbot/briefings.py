@@ -68,6 +68,13 @@ def build_morning_brief(user_id: int) -> str:
 
     lines.append("")
     lines.append(f"Today's targets: {targets['calories']} cal · {targets['protein']}g P · {targets['carbs']}g C · {targets['fat']}g F")
+
+    from fitnessbot import training_plan
+    plan_text = training_plan.format_today_plan(user_id)
+    if plan_text:
+        lines.append("")
+        lines.append(plan_text)
+
     lines.append("")
     lines.append("Log breakfast when you eat.")
     return "\n".join(lines)
@@ -135,6 +142,12 @@ def build_evening_wrap(user_id: int) -> str:
             w_line += f"  ({abs(weight['trend_7d']):.1f} {direction} over 7d)"
         lines.append(w_line)
 
+    from fitnessbot import training_plan
+    adherence_text = training_plan.format_day_adherence(user_id, today)
+    if adherence_text:
+        lines.append("")
+        lines.append(adherence_text)
+
     nudges = []
     if meal_count < 3:
         nudges.append("No dinner logged yet — want to add it?")
@@ -167,6 +180,17 @@ def build_weekly_rollup(user_id: int) -> str:
         lines.append(f"Weight  {weight['current_smoothed']} lbs")
         if weight.get("trend_7d") is not None:
             lines.append(f"  7d change: {weight['trend_7d']:.1f} lbs")
+
+    from fitnessbot import training_plan
+    from fitnessbot.training_plan import _monday_of_week
+    from datetime import date as date_cls
+    ws = _monday_of_week((today - timedelta(days=7)).date())
+    items = training_plan.get_plan_items(user_id, ws)
+    if items:
+        adherence = training_plan.compute_adherence(items)
+        lines.append("")
+        lines.append(f"Training  {adherence['label']} planned activities")
+
     return "\n".join(lines)
 
 

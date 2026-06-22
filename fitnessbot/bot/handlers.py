@@ -3,16 +3,17 @@
 import logging
 from datetime import datetime, timezone
 
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
     filters,
 )
 
-from fitnessbot import db
+from fitnessbot import db, training_plan
 from fitnessbot.bot.conversation import process_message
 from fitnessbot.metrics import get_weight_summary
 from fitnessbot.voice import download_voice_file, transcribe_audio
@@ -65,6 +66,47 @@ def register_handlers(app: Application, user_id: int) -> None:
     async def cmd_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Open your dashboard at: http://fit.140.238.131.77.nip.io")
 
+    async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        text = training_plan.format_plan_telegram(user_id)
+        today_items = training_plan.get_items_for_date(
+            user_id, datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        )
+        incomplete = [i for i in today_items if i["status"] == "planned" and i["activity_type"] != "rest"]
+        if incomplete:
+            buttons = []
+            for item in incomplete[:4]:
+                buttons.append(InlineKeyboardButton(
+                    f"\u2713 {item['title']}",
+                    callback_data=f"plan_done:{item['item_id']}",
+                ))
+            rows = [buttons[i:i+2] for i in range(0, len(buttons), 2)]
+            await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(rows), parse_mode="Markdown")
+        else:
+            await update.message.reply_text(text, parse_mode="Markdown")
+
+    async def handle_plan_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        data = query.data
+        if not data or not data.startswith("plan_done:"):
+            return
+        await query.answer()
+        item_id = int(data.split(":")[1])
+        result = training_plan.complete_item(item_id, user_id)
+        if result:
+            title = result.get("title", "activity")
+            today_items = training_plan.get_items_for_date(
+                user_id, datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            )
+            done_count = sum(1 for i in today_items if i["status"] == "completed")
+            total_count = sum(1 for i in today_items if i["activity_type"] != "rest")
+            reply = f"\u2713 {title} marked done! {done_count}/{total_count} today."
+            dur = result.get("planned_duration_min")
+            if dur:
+                reply += f"\n\nDid you do the full {dur} minutes, or want to adjust?"
+            await query.edit_message_text(reply)
+        else:
+            await query.edit_message_text("Could not find that activity.")
+
     async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = update.message.text
         if not text:
@@ -96,6 +138,8 @@ def register_handlers(app: Application, user_id: int) -> None:
     app.add_handler(CommandHandler("weight", cmd_weight))
     app.add_handler(CommandHandler("undo", cmd_undo))
     app.add_handler(CommandHandler("dashboard", cmd_dashboard))
+    app.add_handler(CommandHandler("plan", cmd_plan))
+    app.add_handler(CallbackQueryHandler(handle_plan_callback, pattern=r"^plan_done:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
 
