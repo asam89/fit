@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_SQL = """
 -- users
@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS users (
     units_pref TEXT NOT NULL DEFAULT 'imperial',
     activity_level TEXT,
     dietary_restrictions TEXT,  -- JSON
+    is_superadmin INTEGER NOT NULL DEFAULT 0,
+    last_active_at TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
@@ -361,11 +363,25 @@ def run_migrations() -> None:
             "SELECT MAX(version) as v FROM schema_version"
         ).fetchone()
         current = row["v"] if row and row["v"] else 0
-        # Future migrations go here:
-        # if current < 2:
-        #     conn.execute("ALTER TABLE ...")
-        #     conn.execute("INSERT INTO schema_version (version) VALUES (2)")
-        #     conn.commit()
+        if current < 2:
+            # Add is_superadmin and last_active_at columns
+            try:
+                conn.execute("ALTER TABLE users ADD COLUMN is_superadmin INTEGER NOT NULL DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+            try:
+                conn.execute("ALTER TABLE users ADD COLUMN last_active_at TEXT")
+            except sqlite3.OperationalError:
+                pass
+            # Set superadmin for configured email
+            from fitnessbot.config import Config
+            if Config.SUPER_ADMIN_EMAIL:
+                conn.execute(
+                    "UPDATE users SET is_superadmin = 1 WHERE email = ?",
+                    (Config.SUPER_ADMIN_EMAIL,),
+                )
+            conn.execute("INSERT INTO schema_version (version) VALUES (2)")
+            conn.commit()
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
         init_db()
@@ -804,5 +820,107 @@ def insert_llm_analysis(
         )
         conn.commit()
         return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+# --- Admin helpers ---
+
+def touch_last_active(user_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE users SET last_active_at = ? WHERE user_id = ?",
+            (utcnow(), user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def ensure_superadmin(email: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE users SET is_superadmin = 1 WHERE email = ?", (email,)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_all_users() -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT u.user_id, u.email, u.display_name, u.is_superadmin,
+                      u.last_active_at, u.created_at,
+                      tc.bot_username, tc.chat_id, tc.is_active as conn_active,
+                      tc.validated_at
+               FROM users u
+               LEFT JOIN telegram_connections tc ON u.user_id = tc.user_id
+               ORDER BY u.created_at DESC"""
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_user_activity_stats(user_id: int) -> dict:
+    conn = get_connection()
+    try:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        meals_today = conn.execute(
+            "SELECT COUNT(*) as c FROM meals WHERE user_id = ? AND DATE(logged_at) = ?",
+            (user_id, today),
+        ).fetchone()["c"]
+        meals_total = conn.execute(
+            "SELECT COUNT(*) as c FROM meals WHERE user_id = ?", (user_id,)
+        ).fetchone()["c"]
+        weights_total = conn.execute(
+            "SELECT COUNT(*) as c FROM body_composition WHERE user_id = ?", (user_id,)
+        ).fetchone()["c"]
+        health_records = conn.execute(
+            "SELECT COUNT(*) as c FROM health_data WHERE user_id = ?", (user_id,)
+        ).fetchone()["c"]
+        llm_calls = conn.execute(
+            "SELECT COUNT(*) as c FROM llm_analysis WHERE user_id = ?", (user_id,)
+        ).fetchone()["c"]
+        last_meal = conn.execute(
+            "SELECT logged_at FROM meals WHERE user_id = ? ORDER BY logged_at DESC LIMIT 1",
+            (user_id,),
+        ).fetchone()
+        return {
+            "meals_today": meals_today,
+            "meals_total": meals_total,
+            "weights_total": weights_total,
+            "health_records": health_records,
+            "llm_calls": llm_calls,
+            "last_meal_at": last_meal["logged_at"] if last_meal else None,
+        }
+    finally:
+        conn.close()
+
+
+def get_platform_stats() -> dict:
+    conn = get_connection()
+    try:
+        users_total = conn.execute("SELECT COUNT(*) as c FROM users").fetchone()["c"]
+        connections_active = conn.execute(
+            "SELECT COUNT(*) as c FROM telegram_connections WHERE is_active = 1"
+        ).fetchone()["c"]
+        meals_total = conn.execute("SELECT COUNT(*) as c FROM meals").fetchone()["c"]
+        llm_total = conn.execute("SELECT COUNT(*) as c FROM llm_analysis").fetchone()["c"]
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        meals_today = conn.execute(
+            "SELECT COUNT(*) as c FROM meals WHERE DATE(logged_at) = ?", (today,)
+        ).fetchone()["c"]
+        return {
+            "users_total": users_total,
+            "connections_active": connections_active,
+            "meals_total": meals_total,
+            "meals_today": meals_today,
+            "llm_calls_total": llm_total,
+        }
     finally:
         conn.close()

@@ -1,0 +1,405 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --canvas:#F4F5F7; --surface:#FFFFFF; --ink:#14161D; --muted:#646B7A; --faint:#9aa1b0;
+    --line:#E6E8EE; --line-2:#EFF1F5;
+    --accent:#2D52F5; --accent-soft:#EEF1FE; --accent-press:#2241cf;
+    --good:#11A36B; --good-soft:#E7F6EF;
+    --miss:#E04338; --warm-soft:#FEF1EC; --amber:#B25410;
+    --r:14px; --r-sm:10px;
+    --display:"Space Grotesk",system-ui,sans-serif;
+    --body:"Inter",system-ui,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--canvas);color:var(--ink);font-family:var(--body);
+    -webkit-font-smoothing:antialiased;font-feature-settings:"cv02","cv03","cv04";}
+  ::selection{background:#cfd9ff}
+  button{font-family:inherit;cursor:pointer;border:none;background:none}
+  textarea{font-family:inherit}
+
+  .wrap{max-width:740px;margin:0 auto;padding:34px 22px 90px}
+
+  /* ---------- top bar ---------- */
+  .bar{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:30px}
+  .mark{font-family:var(--display);font-weight:700;font-size:25px;letter-spacing:-.02em}
+  .mark .dot{color:var(--accent)}
+  .mark .io{color:var(--faint);font-weight:500}
+  .tag{font-size:12.5px;color:var(--muted)}
+  .tag b{color:var(--ink);font-variant-numeric:tabular-nums}
+
+  /* ---------- cards ---------- */
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+    box-shadow:0 1px 2px rgba(20,22,29,.03),0 8px 24px -18px rgba(20,22,29,.18)}
+  .pad{padding:22px}
+
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+
+  /* ---------- composer ---------- */
+  .composer .lead{font-family:var(--display);font-size:21px;font-weight:600;letter-spacing:-.01em;margin:8px 0 16px}
+  textarea.goal{width:100%;min-height:84px;resize:vertical;border:1px solid var(--line);border-radius:var(--r-sm);
+    padding:13px 14px;font-size:15.5px;line-height:1.5;color:var(--ink);background:#fff;outline:none;transition:border-color .15s, box-shadow .15s}
+  textarea.goal::placeholder{color:var(--faint)}
+  textarea.goal:focus{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+  .composer-row{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:14px}
+  .hint{font-size:12.5px;color:var(--muted)}
+
+  .btn{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:14px;border-radius:10px;
+    padding:11px 17px;transition:background .15s, transform .05s, opacity .15s}
+  .btn:active{transform:translateY(1px)}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{background:var(--accent-press)}
+  .btn-primary:disabled{opacity:.5;cursor:default}
+  .btn-ghost{color:var(--muted);padding:9px 12px}
+  .btn-ghost:hover{color:var(--ink);background:var(--line-2)}
+  .btn-good{background:var(--good);color:#fff}
+  .btn-good:hover{filter:brightness(.96)}
+  .btn-miss{color:var(--miss);border:1px solid var(--line);background:#fff}
+  .btn-miss:hover{border-color:var(--miss);background:var(--warm-soft)}
+
+  .spin{width:15px;height:15px;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;
+    animation:sp .7s linear infinite;display:inline-block}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  /* ---------- active goal ---------- */
+  .statement{font-family:var(--display);font-size:23px;line-height:1.22;font-weight:600;letter-spacing:-.015em;margin:0 0 10px}
+  .why{font-size:14.5px;color:var(--muted);line-height:1.5;margin:0 0 18px;max-width:54ch}
+  .meta{display:flex;gap:26px;flex-wrap:wrap;padding:14px 0 18px;border-top:1px solid var(--line-2);border-bottom:1px solid var(--line-2);margin-bottom:18px}
+  .meta .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-bottom:5px}
+  .meta .v{font-size:14px;font-weight:500}
+  .meta .v.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  /* trajectory */
+  .traj{margin:4px 0 22px}
+  .traj-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}
+  .traj-head .pct{font-family:var(--mono);font-size:13px;color:var(--accent);font-weight:500}
+  .track{position:relative;height:6px;border-radius:6px;background:var(--line)}
+  .track .fill{position:absolute;left:0;top:0;bottom:0;border-radius:6px;background:var(--accent);transition:width .4s cubic-bezier(.2,.7,.2,1)}
+
+  /* steps */
+  .step{display:flex;gap:13px;align-items:flex-start;padding:12px 0;border-top:1px solid var(--line-2)}
+  .step:first-child{border-top:none}
+  .step .ix{font-family:var(--mono);font-size:11px;color:var(--faint);width:20px;flex:none;padding-top:3px}
+  .check{width:21px;height:21px;flex:none;border-radius:6px;border:1.5px solid var(--line);background:#fff;
+    display:grid;place-items:center;margin-top:1px;transition:all .15s}
+  .check:hover{border-color:var(--accent)}
+  .check.on{background:var(--accent);border-color:var(--accent)}
+  .check svg{opacity:0;transition:opacity .12s}
+  .check.on svg{opacity:1}
+  .step .txt{font-size:14.5px;line-height:1.45;padding-top:1px}
+  .step.done .txt{color:var(--faint);text-decoration:line-through;text-decoration-color:var(--line)}
+
+  .actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+
+  /* ---------- debrief / introspective ---------- */
+  .debrief{background:var(--warm-soft);border-color:#F6D8C6}
+  .debrief .eyebrow{color:var(--amber)}
+  .debrief textarea.goal{border-color:#F0C9B3;background:#fffaf7}
+  .debrief textarea.goal:focus{border-color:var(--amber);box-shadow:0 0 0 4px #fae6d8}
+  .intro-block{margin-top:18px}
+  .intro-h{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber);margin:18px 0 9px}
+  .intro-li{display:flex;gap:10px;font-size:14.5px;line-height:1.5;padding:6px 0;color:#3a2a20}
+  .intro-li .b{color:var(--amber);flex:none;font-weight:600}
+  .nextmove{background:#fff;border:1px solid #F0C9B3;border-radius:var(--r-sm);padding:14px 15px;margin-top:14px;font-size:14.5px;line-height:1.5}
+  .nextmove .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber);display:block;margin-bottom:6px}
+
+  /* ---------- archive ---------- */
+  .arch-head{display:flex;align-items:center;gap:10px;margin:34px 4px 14px}
+  .arch-head .ln{flex:1;height:1px;background:var(--line)}
+  .arch-item{display:flex;align-items:center;gap:13px;padding:14px 16px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface);margin-bottom:9px;cursor:pointer;transition:border-color .15s,background .15s}
+  .arch-item:hover{border-color:#d7dbe6;background:#fff}
+  .chip{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:4px 8px;border-radius:20px;flex:none}
+  .chip.good{background:var(--good-soft);color:var(--good)}
+  .chip.miss{background:var(--warm-soft);color:var(--miss)}
+  .arch-item .t{font-size:14px;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .arch-item .d{font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .arch-detail{font-size:13.5px;color:var(--muted);line-height:1.55;padding:2px 16px 14px;margin:-6px 0 9px;border:1px solid var(--line);border-top:none;border-radius:0 0 var(--r-sm) var(--r-sm)}
+
+  .empty{text-align:center;color:var(--faint);font-size:13.5px;padding:26px 0}
+
+  @media (max-width:560px){
+    .wrap{padding:24px 16px 80px}
+    .statement{font-size:20px}
+    .meta{gap:18px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+  <div class="bar">
+    <div class="mark">fit<span class="dot">.</span><span class="io">io</span></div>
+    <div class="tag" id="tag"></div>
+  </div>
+  <div id="app"></div>
+</div>
+
+<script>
+/* ---------------- storage layer (the "database") ---------------- */
+const KEY = "fitio:state";
+let MEM = { goals: [] };          // in-memory mirror / fallback
+let canStore = true;
+
+async function load(){
+  try{
+    const r = await window.storage.get(KEY);
+    if(r && r.value) MEM = JSON.parse(r.value);
+  }catch(e){ /* first run or storage unavailable */ }
+}
+async function save(){
+  MEM.goals = MEM.goals || [];
+  try{ await window.storage.set(KEY, JSON.stringify(MEM)); }
+  catch(e){ canStore = false; }
+}
+const uid = () => Math.random().toString(36).slice(2,9);
+const activeGoal = () => MEM.goals.find(g => g.status === "active");
+const archived  = () => MEM.goals.filter(g => g.status !== "active");
+
+/* ---------------- Claude (the goal engine) ---------------- */
+async function callClaude(system, userPrompt){
+  const res = await fetch("https://api.anthropic.com/v1/messages",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      model:"claude-sonnet-4-6",
+      max_tokens:1000,
+      system,
+      messages:[{role:"user",content:userPrompt}]
+    })
+  });
+  if(!res.ok) throw new Error("api "+res.status);
+  const data = await res.json();
+  return (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n");
+}
+function parseJSON(text){
+  const c = text.replace(/```json/gi,"").replace(/```/g,"").trim();
+  const s = c.indexOf("{"), e = c.lastIndexOf("}");
+  return JSON.parse(s>=0 ? c.slice(s,e+1) : c);
+}
+
+async function buildPlan(raw){
+  const sys = `You are a sharp, no-nonsense fitness coach. Turn the user's rough goal into a structured plan.
+Return ONLY a JSON object, no prose, no markdown fences, with exactly these keys:
+"statement": a crisp, specific restatement of the goal (one sentence, measurable),
+"why": one short motivating sentence on why this goal matters / what it unlocks,
+"metric": the single number or signal that proves success (short phrase),
+"targetDate": a realistic target as a short relative phrase (e.g. "8 weeks", "by Sept 1"),
+"steps": an array of 4 to 7 concrete, checkable action steps in order (each a short imperative phrase).
+Be specific and realistic. No medical claims.`;
+  return parseJSON(await callClaude(sys, raw));
+}
+
+async function debrief(goal, notes){
+  const done = goal.steps.filter(s=>s.done).length;
+  const sys = `You are an honest, constructive fitness coach running a post-mortem on a MISSED goal.
+Be direct but supportive. Ground everything in what the user actually says. No platitudes, no medical claims.
+Return ONLY a JSON object, no markdown fences, with these keys:
+"reasons": array of 2-4 short, specific likely reasons the goal was missed,
+"improvements": array of 3-4 concrete, doable changes for next time,
+"nextMove": one single sentence — the very next action to take this week.`;
+  const prompt = `GOAL: ${goal.refined.statement}
+TARGET: ${goal.refined.targetDate} · SUCCESS METRIC: ${goal.refined.metric}
+STEPS COMPLETED: ${done} of ${goal.steps.length}
+WHAT GOT IN THE WAY (user's words): ${notes || "(none provided)"}`;
+  return parseJSON(await callClaude(sys, prompt));
+}
+
+/* ---------------- rendering ---------------- */
+const app = document.getElementById("app");
+const tag = document.getElementById("tag");
+const esc = s => (s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+function render(){
+  const g = activeGoal();
+  const arch = archived();
+  const wins = arch.filter(x=>x.status==="achieved").length;
+  tag.innerHTML = `<b>${wins}</b> done · <b>${arch.length-wins}</b> missed · <b>${arch.length}</b> total`;
+
+  let html = "";
+  html += g ? activeView(g) : composerView();
+  html += archiveView(arch);
+  app.innerHTML = html;
+  wire(g);
+}
+
+function composerView(){
+  return `
+  <div class="card pad composer">
+    <div class="eyebrow">Next goal</div>
+    <div class="lead">What's the next thing you're chasing?</div>
+    <textarea class="goal" id="goalInput" placeholder="e.g. Run a sub-25 5K · lose 8 lb of fat · bench my bodyweight · 3 gym sessions a week for a month"></textarea>
+    <div class="composer-row">
+      <span class="hint">Claude drafts a measurable goal and the steps to get there.</span>
+      <button class="btn btn-primary" id="buildBtn">Build the plan</button>
+    </div>
+  </div>`;
+}
+
+function activeView(g){
+  const r = g.refined;
+  const done = g.steps.filter(s=>s.done).length;
+  const pct = Math.round(done/g.steps.length*100);
+
+  // miss → debrief sub-state
+  if(g.status==="active" && g._debrief){
+    return debriefView(g);
+  }
+
+  const steps = g.steps.map((s,i)=>`
+    <div class="step ${s.done?'done':''}" data-step="${s.id}">
+      <span class="ix">${String(i+1).padStart(2,"0")}</span>
+      <button class="check ${s.done?'on':''}" data-check="${s.id}" aria-label="toggle step">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6.2L4.7 9 10 3" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="txt">${esc(s.text)}</div>
+    </div>`).join("");
+
+  return `
+  <div class="card pad">
+    <div class="eyebrow">Active goal</div>
+    <h1 class="statement" style="margin-top:8px">${esc(r.statement)}</h1>
+    <p class="why">${esc(r.why)}</p>
+    <div class="meta">
+      <div><div class="k">Target</div><div class="v mono">${esc(r.targetDate)}</div></div>
+      <div><div class="k">Success metric</div><div class="v">${esc(r.metric)}</div></div>
+      <div><div class="k">Set</div><div class="v mono">${new Date(g.createdAt).toLocaleDateString(undefined,{month:'short',day:'numeric'})}</div></div>
+    </div>
+
+    <div class="traj">
+      <div class="traj-head"><span class="eyebrow">Trajectory</span><span class="pct">${done}/${g.steps.length} · ${pct}%</span></div>
+      <div class="track"><div class="fill" style="width:${pct}%"></div></div>
+    </div>
+
+    <div class="steps">${steps}</div>
+
+    <div class="actions">
+      <button class="btn btn-good" id="achieveBtn">Mark as achieved</button>
+      <button class="btn btn-miss" id="missBtn">I missed this</button>
+    </div>
+  </div>`;
+}
+
+function debriefView(g){
+  const intro = g._intro;
+  const introHtml = intro ? `
+    <div class="intro-block">
+      <div class="intro-h">Why it slipped</div>
+      ${intro.reasons.map(x=>`<div class="intro-li"><span class="b">—</span><span>${esc(x)}</span></div>`).join("")}
+      <div class="intro-h">What to change</div>
+      ${intro.improvements.map(x=>`<div class="intro-li"><span class="b">→</span><span>${esc(x)}</span></div>`).join("")}
+      <div class="nextmove"><span class="k">Next move this week</span>${esc(intro.nextMove)}</div>
+      <div class="actions">
+        <button class="btn btn-primary" id="reviseBtn">Draft a revised goal</button>
+        <button class="btn btn-ghost" id="archiveMissBtn">Archive &amp; move on</button>
+      </div>
+    </div>` : `
+    <textarea class="goal" id="debriefNotes" placeholder="What actually got in the way? Be honest — travel, motivation dipped, plan too aggressive, life got busy…"></textarea>
+    <div class="composer-row">
+      <span class="hint">Claude runs an honest post-mortem and a plan to fix it.</span>
+      <button class="btn btn-primary" id="runIntroBtn">Run the debrief</button>
+    </div>`;
+
+  return `
+  <div class="card pad debrief">
+    <div class="eyebrow">Debrief — missed goal</div>
+    <h1 class="statement" style="margin-top:8px;font-size:20px">${esc(g.refined.statement)}</h1>
+    ${introHtml}
+  </div>`;
+}
+
+function archiveView(arch){
+  if(!arch.length) return "";
+  const items = arch.slice().reverse().map(g=>{
+    const cls = g.status==="achieved"?"good":"miss";
+    const label = g.status==="achieved"?"done":"missed";
+    const detail = g._intro ? `<div class="arch-detail" id="ad-${g.id}" hidden><b style="color:var(--amber)">Next move:</b> ${esc(g._intro.nextMove)}</div>`:"";
+    return `
+      <div class="arch-item" data-arch="${g.id}">
+        <span class="chip ${cls}">${label}</span>
+        <span class="t">${esc(g.refined.statement)}</span>
+        <span class="d">${new Date(g.closedAt||g.createdAt).toLocaleDateString(undefined,{month:'short',day:'numeric'})}</span>
+      </div>${detail}`;
+  }).join("");
+  return `
+    <div class="arch-head"><span class="eyebrow">History</span><span class="ln"></span></div>
+    ${items}`;
+}
+
+/* ---------------- interactions ---------------- */
+function wire(g){
+  const buildBtn = document.getElementById("buildBtn");
+  if(buildBtn){
+    buildBtn.onclick = async ()=>{
+      const v = document.getElementById("goalInput").value.trim();
+      if(!v) return;
+      buildBtn.disabled = true;
+      buildBtn.innerHTML = `<span class="spin"></span> Drafting`;
+      try{
+        const plan = await buildPlan(v);
+        MEM.goals.push({
+          id:uid(), raw:v, refined:{
+            statement:plan.statement, why:plan.why, metric:plan.metric, targetDate:plan.targetDate
+          },
+          steps:(plan.steps||[]).map(t=>({id:uid(),text:t,done:false})),
+          status:"active", createdAt:Date.now()
+        });
+        await save(); render();
+      }catch(e){
+        buildBtn.disabled=false; buildBtn.textContent="Try again";
+        const h=document.querySelector(".composer .hint"); if(h){h.textContent="Couldn't reach the planner — try once more."; h.style.color="var(--miss)";}
+      }
+    };
+  }
+
+  document.querySelectorAll("[data-check]").forEach(b=>{
+    b.onclick = async ()=>{
+      const id=b.getAttribute("data-check");
+      const s=g.steps.find(x=>x.id===id); s.done=!s.done;
+      await save(); render();
+    };
+  });
+
+  const achieve=document.getElementById("achieveBtn");
+  if(achieve) achieve.onclick=async()=>{ g.status="achieved"; g.closedAt=Date.now(); await save(); render(); };
+
+  const miss=document.getElementById("missBtn");
+  if(miss) miss.onclick=async()=>{ g._debrief=true; await save(); render(); };
+
+  const runIntro=document.getElementById("runIntroBtn");
+  if(runIntro){
+    runIntro.onclick=async()=>{
+      const notes=(document.getElementById("debriefNotes").value||"").trim();
+      g.notes=notes;
+      runIntro.disabled=true; runIntro.innerHTML=`<span class="spin"></span> Thinking`;
+      try{
+        g._intro=await debrief(g,notes);
+        await save(); render();
+      }catch(e){
+        runIntro.disabled=false; runIntro.textContent="Try again";
+      }
+    };
+  }
+
+  const archiveMiss=document.getElementById("archiveMissBtn");
+  if(archiveMiss) archiveMiss.onclick=async()=>{ g.status="missed"; g.closedAt=Date.now(); delete g._debrief; await save(); render(); };
+
+  const revise=document.getElementById("reviseBtn");
+  if(revise) revise.onclick=async()=>{
+    g.status="missed"; g.closedAt=Date.now(); delete g._debrief;
+    await save(); render();
+    const ta=document.getElementById("goalInput");
+    if(ta){ ta.value=g.raw; ta.focus(); window.scrollTo({top:0,behavior:"smooth"}); }
+  };
+
+  document.querySelectorAll("[data-arch]").forEach(it=>{
+    it.onclick=()=>{ const d=document.getElementById("ad-"+it.getAttribute("data-arch")); if(d) d.hidden=!d.hidden; };
+  });
+}
+
+/* ---------------- boot ---------------- */
+(async()=>{ await load(); render(); })();
+</script>
