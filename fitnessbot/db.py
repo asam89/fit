@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 SCHEMA_SQL = """
 -- users
@@ -678,6 +678,37 @@ def run_migrations() -> None:
                 updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))
             """)
             conn.execute("INSERT INTO schema_version (version) VALUES (10)")
+            conn.commit()
+            current = 10
+
+        if current < 11:
+            # Fix: training_plan_items FK referenced training_plans_legacy after rename.
+            # Recreate the items table with correct FK.
+            try:
+                fk_sql = conn.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='training_plan_items'"
+                ).fetchone()
+                if fk_sql and 'training_plans_legacy' in (fk_sql[0] or ''):
+                    conn.execute("DROP TABLE IF EXISTS training_plan_items")
+                    conn.execute("""CREATE TABLE training_plan_items (
+                        item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        plan_id INTEGER NOT NULL REFERENCES training_plans(plan_id) ON DELETE CASCADE,
+                        user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                        date TEXT NOT NULL,
+                        day_of_week INTEGER NOT NULL,
+                        activity_type TEXT NOT NULL DEFAULT 'other',
+                        title TEXT NOT NULL,
+                        planned_duration_min INTEGER,
+                        notes TEXT,
+                        position INTEGER NOT NULL DEFAULT 0,
+                        status TEXT NOT NULL DEFAULT 'planned',
+                        completed_at TEXT,
+                        linked_exercise_id INTEGER)""")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_tpi_user_date ON training_plan_items(user_id, date)")
+                    conn.execute("CREATE INDEX IF NOT EXISTS idx_tpi_plan ON training_plan_items(plan_id)")
+            except sqlite3.OperationalError:
+                pass
+            conn.execute("INSERT INTO schema_version (version) VALUES (11)")
             conn.commit()
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
