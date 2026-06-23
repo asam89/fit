@@ -136,6 +136,40 @@ def _build_stale_suggestion(user_id: int) -> str | None:
     return None
 
 
+async def _dispatch_event_checkins():
+    """Run every 30 minutes. Send motivation check-ins for active event goals."""
+    from fitnessbot import db
+    from fitnessbot.event_coaching import build_motivation_checkin
+    from fitnessbot.briefings import _send_telegram
+
+    due = db.get_due_event_checkins()
+    for goal in due:
+        uid = goal["user_id"]
+        try:
+            tz_str = goal.get("timezone", "America/Toronto")
+            now = _user_now(tz_str)
+            # Only send during waking hours (8am-9pm local)
+            hour = now.hour
+            if hour < 8 or hour > 21:
+                continue
+
+            freq = goal.get("motivation_frequency", "daily")
+            if freq == "every_other_day":
+                from datetime import date
+                day_num = (date.today() - date(2026, 1, 1)).days
+                if day_num % 2 != 0:
+                    continue
+
+            text = build_motivation_checkin(goal, uid)
+            if text:
+                sent = await _send_telegram(uid, text)
+                if sent:
+                    db.update_event_goal(goal["eg_id"], last_checkin_at=db.utcnow())
+                    logger.info("Event check-in sent for user %s, event %s", uid, goal["title"])
+        except Exception as e:
+            logger.error("Event check-in failed for user %s: %s", uid, e, exc_info=True)
+
+
 def setup_scheduler() -> AsyncIOScheduler:
     global _scheduler
     if _scheduler is not None:
@@ -149,6 +183,12 @@ def setup_scheduler() -> AsyncIOScheduler:
         except Exception as e:
             logger.error("Scheduler dispatch_briefings failed: %s", e, exc_info=True)
 
+    async def _safe_event_checkins():
+        try:
+            await _dispatch_event_checkins()
+        except Exception as e:
+            logger.error("Scheduler event_checkins failed: %s", e, exc_info=True)
+
     _scheduler.add_job(
         _safe_dispatch,
         CronTrigger(minute="*"),
@@ -156,7 +196,14 @@ def setup_scheduler() -> AsyncIOScheduler:
         replace_existing=True,
     )
 
-    logger.info("Scheduler configured: per-minute dispatcher, tz=%s", Config.TIMEZONE)
+    _scheduler.add_job(
+        _safe_event_checkins,
+        CronTrigger(minute="0,30"),
+        id="event_checkins",
+        replace_existing=True,
+    )
+
+    logger.info("Scheduler configured: per-minute dispatcher + event check-ins, tz=%s", Config.TIMEZONE)
     return _scheduler
 
 

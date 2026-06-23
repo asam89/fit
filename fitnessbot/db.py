@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 SCHEMA_SQL = """
 -- users
@@ -418,6 +418,25 @@ CREATE TABLE IF NOT EXISTS notification_preferences (
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 
+-- event_goals (upcoming events with prep plans and motivation)
+CREATE TABLE IF NOT EXISTS event_goals (
+    eg_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    event_date TEXT NOT NULL,
+    sport_type TEXT,
+    description TEXT,
+    days_out INTEGER,
+    prep_plan_json TEXT,
+    science_notes TEXT,
+    readiness_markers TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    motivation_frequency TEXT NOT NULL DEFAULT 'daily',
+    last_checkin_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+
 -- schema_version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
@@ -709,6 +728,28 @@ def run_migrations() -> None:
             except sqlite3.OperationalError:
                 pass
             conn.execute("INSERT INTO schema_version (version) VALUES (11)")
+            conn.commit()
+            current = 11
+
+        if current < 12:
+            conn.execute("""CREATE TABLE IF NOT EXISTS event_goals (
+                eg_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                title TEXT NOT NULL,
+                event_date TEXT NOT NULL,
+                sport_type TEXT,
+                description TEXT,
+                days_out INTEGER,
+                prep_plan_json TEXT,
+                science_notes TEXT,
+                readiness_markers TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                motivation_frequency TEXT NOT NULL DEFAULT 'daily',
+                last_checkin_at TEXT,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))
+            """)
+            conn.execute("INSERT INTO schema_version (version) VALUES (12)")
             conn.commit()
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
@@ -1917,5 +1958,79 @@ def get_workout_count_range(user_id: int, days: int) -> int:
             (user_id, f"-{days} days"),
         ).fetchone()
         return row["c"]
+    finally:
+        conn.close()
+
+
+# --- event_goals helpers ---
+
+def insert_event_goal(
+    user_id: int, title: str, event_date: str, sport_type: str | None = None,
+    description: str | None = None, days_out: int | None = None,
+    prep_plan_json: str | None = None, science_notes: str | None = None,
+    readiness_markers: str | None = None, motivation_frequency: str = "daily",
+) -> int:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            """INSERT INTO event_goals
+               (user_id, title, event_date, sport_type, description, days_out,
+                prep_plan_json, science_notes, readiness_markers, motivation_frequency)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, title, event_date, sport_type, description, days_out,
+             prep_plan_json, science_notes, readiness_markers, motivation_frequency),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def get_active_event_goals(user_id: int) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM event_goals WHERE user_id = ? AND status = 'active' ORDER BY event_date ASC",
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_event_goal(eg_id: int) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM event_goals WHERE eg_id = ?", (eg_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def update_event_goal(eg_id: int, **kwargs) -> None:
+    conn = get_connection()
+    try:
+        kwargs["updated_at"] = utcnow()
+        sets = ", ".join(f"{k} = ?" for k in kwargs)
+        conn.execute(f"UPDATE event_goals SET {sets} WHERE eg_id = ?", list(kwargs.values()) + [eg_id])
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_due_event_checkins() -> list[dict]:
+    """Get all active event goals needing a motivation check-in today."""
+    conn = get_connection()
+    try:
+        rows = conn.execute("""
+            SELECT eg.*, u.timezone, tc.chat_id, tc.bot_token_encrypted
+            FROM event_goals eg
+            JOIN users u ON eg.user_id = u.user_id
+            JOIN telegram_connections tc ON eg.user_id = tc.user_id AND tc.is_active = 1
+            WHERE eg.status = 'active'
+            AND eg.event_date >= date('now')
+            AND (eg.last_checkin_at IS NULL OR DATE(eg.last_checkin_at) < date('now'))
+        """).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()

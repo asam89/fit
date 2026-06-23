@@ -8,6 +8,11 @@ from datetime import datetime, timezone
 
 from fitnessbot import db
 from fitnessbot.ai.food_parser import parse_meal, log_meal_from_parsed
+from fitnessbot.event_coaching import (
+    is_event_goal_message, is_readiness_check, parse_event_date,
+    detect_sport_type, build_prep_plan, build_readiness_assessment,
+    format_prep_plan_summary,
+)
 from fitnessbot.metrics import log_weight, get_weight_summary
 from fitnessbot.inference.base import InferenceError
 
@@ -18,7 +23,7 @@ logger = logging.getLogger(__name__)
 NLU_SYSTEM = """You are an intent classifier for a fitness tracking bot. Given a user message, extract ALL intents and structured data.
 
 Return ONLY a JSON object with key "intents" — an array of objects, each with:
-- "type": one of meal_log, health_metric, workout_log, profile_update, goal_update, plan_set, plan_complete, query, correction, general
+- "type": one of meal_log, health_metric, workout_log, profile_update, goal_update, plan_set, plan_complete, event_goal, readiness_check, query, correction, general
 - "confidence": 0.0-1.0
 - Fields specific to the type:
   - meal_log: "items" (array of {name, qty, unit}), "meal_type" (breakfast/lunch/dinner/snack), "when" (now/this_morning/last_night)
@@ -28,9 +33,14 @@ Return ONLY a JSON object with key "intents" — an array of objects, each with:
   - goal_update: "goal_type" (lose/gain/maintain), "target_weight", "target_date"
   - plan_set: "activities" (array of {day: "monday"..."sunday", title: str, type: "strength"/"run"/"cardio"/"mobility"/"sport"/"rest"/"other", duration: int|null})
   - plan_complete: "title_hint" (what activity to mark done, e.g. "basketball", "legs"), "actual_duration": int|null
+  - event_goal: "title" (event name, e.g. "basketball tournament", "half marathon"), "date_text" (raw date mention, e.g. "July 17th", "in 30 days"), "description" (what the user wants help with)
+  - readiness_check: "event_hint" (which event they're asking about, or empty for most recent)
   - query: "question"
   - correction: "what" (description of what to fix), "new_value"
   - general: "text"
+
+Use event_goal when the user mentions an upcoming event, competition, race, or challenge with a date and wants preparation help, motivation, or a plan.
+Use readiness_check when the user asks if they're ready/prepared for an upcoming event.
 
 Multi-data messages should produce multiple intents. Be concise.
 If confidence < 0.6, set "ambiguous": true and "clarification": "short question to ask".
@@ -104,6 +114,14 @@ def _fast_path_intents(text: str, pending: dict | None) -> list[dict] | None:
     )):
         return [{"type": "query", "question": stripped, "confidence": 0.95}]
 
+    # Event goal fast path
+    if is_event_goal_message(stripped):
+        return [{"type": "event_goal", "title": stripped, "date_text": stripped, "description": stripped, "confidence": 0.9}]
+
+    # Readiness check fast path
+    if is_readiness_check(stripped):
+        return [{"type": "readiness_check", "event_hint": stripped, "confidence": 0.95}]
+
     return None
 
 
@@ -167,6 +185,10 @@ def _act_on_intents(intents: list[dict], user_id: int, raw_text: str) -> list[di
                 r = _act_plan_set(intent, user_id)
             elif itype == "plan_complete":
                 r = _act_plan_complete(intent, user_id)
+            elif itype == "event_goal":
+                r = _act_event_goal(intent, user_id)
+            elif itype == "readiness_check":
+                r = _act_readiness_check(intent, user_id)
             elif itype == "query":
                 r = _act_query(user_id, intent.get("question", ""))
             elif itype == "correction":
@@ -314,6 +336,80 @@ def _act_plan_complete(intent: dict, user_id: int) -> dict:
         "action": "workout_logged_no_plan",
         "activity": title_hint,
         "duration_min": actual_duration,
+    }
+
+
+def _act_event_goal(intent: dict, user_id: int) -> dict:
+    """Create an event goal and generate a prep plan."""
+    title_raw = intent.get("title", "")
+    date_text = intent.get("date_text", title_raw)
+    description = intent.get("description", title_raw)
+
+    event_date = parse_event_date(date_text)
+    if not event_date:
+        event_date = parse_event_date(title_raw)
+    if not event_date:
+        return {"action": "event_goal_no_date", "note": "Could not determine event date"}
+
+    sport_type = detect_sport_type(title_raw) or detect_sport_type(description)
+
+    # Extract a clean title from the raw text
+    from fitnessbot.event_coaching import _EVENT_KEYWORDS
+    m = _EVENT_KEYWORDS.search(title_raw)
+    clean_title = title_raw[:80] if not m else f"{sport_type or ''} {m.group(0)}".strip().title()
+    if not clean_title:
+        clean_title = title_raw[:80]
+
+    now = datetime.now(timezone.utc)
+    target = datetime.strptime(event_date, "%Y-%m-%d")
+    days_out = (target.date() - now.date()).days
+
+    plan_data = build_prep_plan(user_id, clean_title, event_date, sport_type, description)
+
+    eg_id = db.insert_event_goal(
+        user_id=user_id,
+        title=clean_title,
+        event_date=event_date,
+        sport_type=sport_type,
+        description=description,
+        days_out=days_out,
+        prep_plan_json=json.dumps(plan_data.get("prep_plan", {})),
+        science_notes=plan_data.get("science_notes", ""),
+        readiness_markers=json.dumps(plan_data.get("readiness_markers", [])),
+        motivation_frequency="daily" if days_out <= 30 else "every_other_day",
+    )
+
+    return {
+        "action": "event_goal_created",
+        "eg_id": eg_id,
+        "title": clean_title,
+        "event_date": event_date,
+        "days_out": days_out,
+        "sport_type": sport_type,
+        "plan_data": plan_data,
+    }
+
+
+def _act_readiness_check(intent: dict, user_id: int) -> dict:
+    """Assess readiness for the user's active event goal."""
+    active_goals = db.get_active_event_goals(user_id)
+    if not active_goals:
+        return {"action": "readiness_no_event", "note": "No active event goals"}
+
+    event_hint = intent.get("event_hint", "")
+    goal = active_goals[0]
+    if event_hint:
+        for g in active_goals:
+            if g["title"].lower() in event_hint.lower() or event_hint.lower() in g["title"].lower():
+                goal = g
+                break
+
+    assessment = build_readiness_assessment(user_id, goal)
+    return {
+        "action": "readiness_assessed",
+        "title": goal["title"],
+        "event_date": goal["event_date"],
+        "assessment": assessment,
     }
 
 
@@ -654,6 +750,22 @@ def _deterministic_confirmation(act_results: list[dict], user_id: int) -> str:
             parts.append(f"\u2713 {r['title']} marked done!")
         elif action == "workout_logged_no_plan":
             parts.append(f"Logged {r['activity']}" + (f" ({r['duration_min']}min)" if r.get('duration_min') else "") + ". No matching plan item — want me to add it?")
+        elif action == "event_goal_created":
+            plan_data = r.get("plan_data", {})
+            parts.append(f"🎯 *{r['title']}* — {r['event_date']} ({r['days_out']} days out)")
+            plan_summary = format_prep_plan_summary(plan_data)
+            if plan_summary:
+                parts.append(f"\n{plan_summary}")
+            science = plan_data.get("science_notes", "")
+            if science:
+                parts.append(f"\n📖 The science:\n{science[:500]}")
+            parts.append("\nI'll send you daily motivation + check-ins as your event approaches. Ask me \"am I ready?\" anytime for a readiness assessment.")
+        elif action == "event_goal_no_date":
+            parts.append("I'd love to help you prepare! When is the event? (e.g., 'July 17th' or 'in 30 days')")
+        elif action == "readiness_assessed":
+            parts.append(r.get("assessment", "Could not assess readiness — need more logged data."))
+        elif action == "readiness_no_event":
+            parts.append("No active event goals. Tell me about an upcoming event (e.g., 'I have a basketball tournament on July 17th') and I'll build a prep plan.")
         elif action == "parse_failed":
             parts.append("Couldn't parse that meal. Try being more specific.")
         elif action == "query":
@@ -741,7 +853,7 @@ async def process_message(user_id: int, text: str, channel: str = "text") -> str
     writes_json = json.dumps([{"type": r.get("intent_type"), "action": r.get("action")} for r in act_results])
 
     # 3. RESPOND
-    has_real_writes = any(r.get("action", "").endswith("logged") or r.get("action") in ("correction_applied", "profile_updated", "query") for r in act_results)
+    has_real_writes = any(r.get("action", "").endswith("logged") or r.get("action") in ("correction_applied", "profile_updated", "query", "event_goal_created", "readiness_assessed") for r in act_results)
 
     if has_real_writes:
         reply, resp_tokens = _generate_coaching_reply(user_id, text, act_results)
