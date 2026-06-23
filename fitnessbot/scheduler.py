@@ -38,6 +38,8 @@ async def _dispatch_briefings():
     )
 
     connections = db.get_all_active_connections()
+    if not connections:
+        return
     for conn in connections:
         uid = conn["user_id"]
         try:
@@ -48,6 +50,11 @@ async def _dispatch_briefings():
             now = _user_now(tz_str)
             current_time = now.strftime("%H:%M")
             prefs = db.get_notification_preferences(uid)
+            logger.debug("User %s tz=%s local=%s prefs_morning=%s/%s midday=%s/%s evening=%s/%s",
+                         uid, tz_str, current_time,
+                         prefs["morning_brief_enabled"], prefs["morning_brief_time"],
+                         prefs["midday_check_enabled"], prefs["midday_check_time"],
+                         prefs["evening_wrap_enabled"], prefs["evening_wrap_time"])
 
             # Morning brief
             if (prefs["morning_brief_enabled"]
@@ -136,14 +143,14 @@ def setup_scheduler() -> AsyncIOScheduler:
 
     _scheduler = AsyncIOScheduler(timezone=Config.TIMEZONE)
 
-    async def _safe_run(fn, name):
+    async def _safe_dispatch():
         try:
-            await fn()
+            await _dispatch_briefings()
         except Exception as e:
-            logger.error("Scheduler job %s failed: %s", name, e, exc_info=True)
+            logger.error("Scheduler dispatch_briefings failed: %s", e, exc_info=True)
 
     _scheduler.add_job(
-        lambda: _safe_run(_dispatch_briefings, "dispatch_briefings"),
+        _safe_dispatch,
         CronTrigger(minute="*"),
         id="dispatch_briefings",
         replace_existing=True,
