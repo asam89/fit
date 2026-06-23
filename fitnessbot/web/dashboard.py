@@ -24,20 +24,45 @@ templates = Jinja2Templates(directory=str(Config.TEMPLATE_DIR))
 RANGE_DAYS = {"week": 7, "month": 30, "quarter": 90, "year": 365}
 
 
-def _build_gaps(user_id: int, today: str, totals: dict, weight: dict, connection: dict | None) -> list[str]:
+def _build_gaps(user_id: int, today: str, totals: dict, weight: dict, connection: dict | None) -> list[dict]:
     gaps = []
     if not connection:
-        gaps.append("Connect Telegram in Settings to start tracking via chat.")
+        gaps.append({
+            "text": "Connect Telegram to start tracking via chat.",
+            "link": "/settings",
+            "link_text": "Go to Settings",
+            "icon": "telegram",
+        })
     if totals["calories"] == 0:
-        gaps.append("Nothing logged yet today. Tell me what you ate or use the quick-log below.")
+        gaps.append({
+            "text": "Nothing logged yet today. Tell me what you ate or use the quick-log below.",
+            "link": "#log",
+            "link_text": "Quick Log",
+            "icon": "meal",
+        })
     elif db.get_meal_count_today(user_id, today) < 2:
         hour = datetime.now(timezone.utc).hour
         if hour >= 18:
-            gaps.append("Only one meal logged. Missed dinner?")
+            gaps.append({
+                "text": "Only one meal logged. Missed dinner?",
+                "link": "#log",
+                "link_text": "Log Now",
+                "icon": "meal",
+            })
     if not weight.get("has_data"):
-        gaps.append("No weight data yet. Log your weight: \"weight 182\"")
+        gaps.append({
+            "text": "No weight data yet. Log your first weigh-in.",
+            "link": "#logdata",
+            "link_text": "Log Weight",
+            "icon": "weight",
+        })
     elif weight.get("days_since_last") and weight["days_since_last"] >= 2:
-        gaps.append("No weigh-in in 2+ days. Hop on the scale tomorrow morning?")
+        gaps.append({
+            "text": "No weigh-in in 2+ days. Hop on the scale tomorrow morning?",
+            "link": "#logdata",
+            "link_text": "Log Weight",
+            "icon": "weight",
+        })
     return gaps
 
 
@@ -78,7 +103,12 @@ async def dashboard_home(request: Request):
     has_ai = cred is not None
 
     if not has_ai:
-        gaps.insert(0, "Add an API key in Settings \u2192 Connections to enable AI features.")
+        gaps.insert(0, {
+            "text": "Add an API key to enable AI features (meal analysis, coaching, insights).",
+            "link": "/settings",
+            "link_text": "Go to Settings",
+            "icon": "key",
+        })
 
     # Build rich summaries
     today_summary = build_today_summary(uid)
