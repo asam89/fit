@@ -59,6 +59,52 @@ class OpenAIProvider(LLMProvider):
         except Exception as e:
             raise InferenceError(f"OpenAI API error: {e}")
 
+    def complete_vision(
+        self,
+        *,
+        key: str,
+        system: str,
+        image_data: bytes,
+        media_type: str,
+        prompt: str,
+        model: str,
+        max_tokens: int = 1024,
+        json_mode: bool = False,
+    ) -> dict:
+        import base64
+        try:
+            from openai import OpenAI, AuthenticationError
+        except ImportError:
+            raise InferenceError("openai package not installed")
+
+        client = OpenAI(api_key=key)
+        b64 = base64.b64encode(image_data).decode("utf-8")
+        messages = [
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{b64}"}},
+                    {"type": "text", "text": prompt},
+                ],
+            },
+        ]
+        kwargs = {"model": model, "max_tokens": max_tokens, "messages": messages}
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+        try:
+            response = client.chat.completions.create(**kwargs)
+            choice = response.choices[0]
+            return {
+                "text": choice.message.content.strip(),
+                "input_tokens": response.usage.prompt_tokens if response.usage else 0,
+                "output_tokens": response.usage.completion_tokens if response.usage else 0,
+            }
+        except AuthenticationError as e:
+            raise InferenceError(f"Invalid OpenAI API key: {e}")
+        except Exception as e:
+            raise InferenceError(f"OpenAI vision error: {e}")
+
     def validate_key(self, key: str) -> bool:
         try:
             from openai import OpenAI

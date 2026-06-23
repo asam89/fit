@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 SCHEMA_SQL = """
 -- users
@@ -418,6 +418,17 @@ CREATE TABLE IF NOT EXISTS notification_preferences (
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 
+-- invite_links
+CREATE TABLE IF NOT EXISTS invite_links (
+    link_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    code TEXT UNIQUE NOT NULL,
+    uses INTEGER NOT NULL DEFAULT 0,
+    max_uses INTEGER,
+    expires_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+
 -- event_goals (upcoming events with prep plans and motivation)
 CREATE TABLE IF NOT EXISTS event_goals (
     eg_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -750,6 +761,31 @@ def run_migrations() -> None:
                 updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))
             """)
             conn.execute("INSERT INTO schema_version (version) VALUES (12)")
+            conn.commit()
+            current = 12
+
+        if current < 13:
+            conn.execute("""CREATE TABLE IF NOT EXISTS invite_links (
+                link_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                code TEXT UNIQUE NOT NULL,
+                uses INTEGER NOT NULL DEFAULT 0,
+                max_uses INTEGER,
+                expires_at TEXT,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))
+            """)
+            for col_name, col_type, col_default in [
+                ("email_verified", "INTEGER", "0"),
+                ("email_verify_code", "TEXT", None),
+                ("google_id", "TEXT", None),
+                ("invited_by", "INTEGER", None),
+            ]:
+                try:
+                    default_clause = f" DEFAULT {col_default}" if col_default else ""
+                    conn.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}{default_clause}")
+                except sqlite3.OperationalError:
+                    pass
+            conn.execute("INSERT INTO schema_version (version) VALUES (13)")
             conn.commit()
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
@@ -2032,5 +2068,76 @@ def get_due_event_checkins() -> list[dict]:
             AND (eg.last_checkin_at IS NULL OR DATE(eg.last_checkin_at) < date('now'))
         """).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+# --- invite_links helpers ---
+
+def create_invite_link(user_id: int, code: str, max_uses: int | None = None, expires_at: str | None = None) -> int:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "INSERT INTO invite_links (user_id, code, max_uses, expires_at) VALUES (?, ?, ?, ?)",
+            (user_id, code, max_uses, expires_at),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def get_invite_link(code: str) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM invite_links WHERE code = ?", (code,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def increment_invite_uses(code: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE invite_links SET uses = uses + 1 WHERE code = ?", (code,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_user_invite_links(user_id: int) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM invite_links WHERE user_id = ? ORDER BY created_at DESC", (user_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_user_by_google_id(google_id: str) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM users WHERE google_id = ?", (google_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def set_email_verify_code(user_id: int, code: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE users SET email_verify_code = ? WHERE user_id = ?", (code, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def verify_email(user_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE users SET email_verified = 1, email_verify_code = NULL WHERE user_id = ?", (user_id,))
+        conn.commit()
     finally:
         conn.close()

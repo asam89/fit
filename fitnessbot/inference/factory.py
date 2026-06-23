@@ -100,6 +100,29 @@ def get_inference(user_id: int) -> Callable:
     return _call
 
 
+def get_vision_inference(user_id: int) -> Callable:
+    """Return a callable for vision inference. Raises InferenceError if no key."""
+    cred = get_user_credential(user_id)
+    if not cred:
+        raise InferenceError("No API key configured. Add one in Settings → Connections.")
+
+    provider = PROVIDERS.get(cred["provider"])
+    if not provider:
+        raise InferenceError(f"Unknown provider: {cred['provider']}")
+
+    key = cred["key"]
+    model = cred["model"]
+
+    def _call(*, system: str, image_data: bytes, media_type: str, prompt: str,
+              max_tokens: int = 1024, json_mode: bool = False) -> dict:
+        return provider.complete_vision(
+            key=key, system=system, image_data=image_data, media_type=media_type,
+            prompt=prompt, model=model, max_tokens=max_tokens, json_mode=json_mode,
+        )
+
+    return _call
+
+
 def get_inference_for_system() -> Callable:
     """Return inference callable using the system-level Anthropic key (for background jobs, etc.)."""
     key = Config.ANTHROPIC_API_KEY

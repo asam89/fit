@@ -53,6 +53,47 @@ class AnthropicProvider(LLMProvider):
         except Exception as e:
             raise InferenceError(f"Anthropic API error: {e}")
 
+    def complete_vision(
+        self,
+        *,
+        key: str,
+        system: str,
+        image_data: bytes,
+        media_type: str,
+        prompt: str,
+        model: str,
+        max_tokens: int = 1024,
+        json_mode: bool = False,
+    ) -> dict:
+        import base64
+        client = anthropic.Anthropic(api_key=key)
+        sys_text = system
+        if json_mode:
+            sys_text += "\n\nReturn ONLY valid JSON, no markdown fences or extra text."
+        b64 = base64.b64encode(image_data).decode("utf-8")
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ]
+        try:
+            response = client.messages.create(
+                model=model, max_tokens=max_tokens, system=sys_text, messages=messages,
+            )
+            return {
+                "text": response.content[0].text.strip(),
+                "input_tokens": response.usage.input_tokens,
+                "output_tokens": response.usage.output_tokens,
+            }
+        except anthropic.AuthenticationError as e:
+            raise InferenceError(f"Invalid Anthropic API key: {e}")
+        except Exception as e:
+            raise InferenceError(f"Anthropic vision error: {e}")
+
     def validate_key(self, key: str) -> bool:
         try:
             client = anthropic.Anthropic(api_key=key)
