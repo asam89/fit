@@ -83,6 +83,9 @@ def log_meal_from_parsed(
     total_pro = sum(item.get("protein", 0) for item in items)
     total_carb = sum(item.get("carbs", 0) for item in items)
     total_fat = sum(item.get("fat", 0) for item in items)
+    total_fiber = sum(item.get("fiber", 0) for item in items)
+    total_sugar = sum(item.get("sugar", 0) for item in items)
+    total_sodium = sum(item.get("sodium", 0) for item in items)
 
     if not meal_type:
         meal_type = _infer_meal_type()
@@ -96,6 +99,9 @@ def log_meal_from_parsed(
         total_protein=total_pro,
         total_carbs=total_carb,
         total_fat=total_fat,
+        total_fiber=total_fiber,
+        total_sugar=total_sugar,
+        total_sodium=total_sodium,
     )
 
     saved_items = []
@@ -123,6 +129,9 @@ def log_meal_from_parsed(
             protein=item.get("protein", 0),
             carbs=item.get("carbs", 0),
             fat=item.get("fat", 0),
+            fiber=item.get("fiber", 0),
+            sugar=item.get("sugar", 0),
+            sodium=item.get("sodium", 0),
         )
         saved_items.append(item)
 
@@ -133,6 +142,9 @@ def log_meal_from_parsed(
         "total_protein": total_pro,
         "total_carbs": total_carb,
         "total_fat": total_fat,
+        "total_fiber": total_fiber,
+        "total_sugar": total_sugar,
+        "total_sodium": total_sodium,
     }
 
 

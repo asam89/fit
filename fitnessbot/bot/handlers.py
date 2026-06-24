@@ -32,15 +32,19 @@ PHOTO_MEAL_SYSTEM = """You are a nutrition analyst. Given a photo of food, ident
 Return ONLY a JSON object:
 {
   "items": [
-    {"name": "food name", "quantity": "portion estimate", "calories": int, "protein": float, "carbs": float, "fat": float, "fiber": float}
+    {"name": "food name", "quantity": "portion estimate", "calories": int, "protein": float, "carbs": float, "fat": float, "fiber": float, "sugar": float, "sodium": float}
   ],
   "total_calories": int,
   "total_protein": float,
   "total_carbs": float,
   "total_fat": float,
+  "total_fiber": float,
+  "total_sugar": float,
+  "total_sodium": float,
   "description": "brief 1-line description of the meal"
 }
 
+Sodium is in milligrams. All other macros are in grams.
 Be practical with portions — estimate based on typical serving sizes visible in the photo.
 If you can't identify a food clearly, make your best educated guess and note uncertainty in the name (e.g. "sauce (estimated)").
 All numbers should be reasonable real-world values. Err on the side of accuracy over precision."""
@@ -268,6 +272,21 @@ def register_handlers(app: Application, user_id: int) -> None:
             total_protein = data.get("total_protein", 0)
             total_carbs = data.get("total_carbs", 0)
             total_fat = data.get("total_fat", 0)
+            total_fiber = data.get("total_fiber", 0)
+            total_sugar = data.get("total_sugar", 0)
+            total_sodium = data.get("total_sodium", 0)
+
+            # Save photo to disk
+            photo_rel = None
+            try:
+                Config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+                ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+                photo_filename = f"{user_id}_{ts}_{secrets.token_hex(4)}.{ext or 'jpg'}"
+                photo_disk = Config.UPLOAD_DIR / photo_filename
+                photo_disk.write_bytes(image_data)
+                photo_rel = f"/uploads/meals/{photo_filename}"
+            except Exception:
+                logger.warning("Failed to save meal photo to disk", exc_info=True)
 
             inferred_type = _infer_meal_type()
             meal_id = db.insert_meal(
@@ -279,6 +298,10 @@ def register_handlers(app: Application, user_id: int) -> None:
                 total_protein=total_protein,
                 total_carbs=total_carbs,
                 total_fat=total_fat,
+                total_fiber=total_fiber,
+                total_sugar=total_sugar,
+                total_sodium=total_sodium,
+                photo_path=photo_rel,
             )
             for item in items:
                 food_id = db.insert_food(
@@ -299,6 +322,9 @@ def register_handlers(app: Application, user_id: int) -> None:
                     protein=item.get("protein", 0),
                     carbs=item.get("carbs", 0),
                     fat=item.get("fat", 0),
+                    fiber=item.get("fiber", 0),
+                    sugar=item.get("sugar", 0),
+                    sodium=item.get("sodium", 0),
                 )
 
             lines = [f"\u2705 Logged as {inferred_type.title()}: {description}\n"]
