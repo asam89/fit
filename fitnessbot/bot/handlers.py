@@ -214,6 +214,7 @@ def register_handlers(app: Application, user_id: int) -> None:
                 data = json.loads(cleaned)
 
             description = data.get("description", "meal from photo")
+            items = data.get("items", [])
             total_cal = data.get("total_calories", 0)
             total_protein = data.get("total_protein", 0)
             total_carbs = data.get("total_carbs", 0)
@@ -251,7 +252,6 @@ def register_handlers(app: Application, user_id: int) -> None:
                 )
 
             lines = [f"Logged: {description}\n"]
-            items = data.get("items", [])
             for item in items:
                 lines.append(f"  {item['name']} ({item.get('quantity', '1 serving')}) — {item.get('calories', 0)} cal, {item.get('protein', 0)}g protein")
             lines.append(f"\nTotal: {total_cal} cal | {total_protein}g protein | {total_carbs}g carbs | {total_fat}g fat")
