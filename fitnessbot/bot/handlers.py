@@ -165,8 +165,8 @@ def register_handlers(app: Application, user_id: int) -> None:
         user = db.get_user_by_id(user_id)
         name = user["display_name"] if user else "Someone"
         await update.message.reply_text(
-            f"\U0001F3CB\uFE0F fit.io Invite Link\n\n{link}\n\n"
-            f"Share this with friends to join your fitness network on fit.io.\n"
+            f"\U0001F3CB\uFE0F fit-ness.ca Invite Link\n\n{link}\n\n"
+            f"Share this with friends to join your fitness network on fit-ness.ca.\n"
             f"They'll be connected to you when they sign up."
         )
 

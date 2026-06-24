@@ -1,4 +1,4 @@
-"""Goals page — fit.io goal engine with Claude-powered planning and debrief."""
+"""Goals page — fit-ness goal engine with Claude-powered planning and debrief."""
 
 import json
 import logging

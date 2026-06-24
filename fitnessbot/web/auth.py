@@ -93,7 +93,7 @@ def _send_verification_email(email: str, code: str) -> bool:
         logger.warning("SMTP not configured, skipping verification email for %s", email)
         return False
     msg = EmailMessage()
-    msg["Subject"] = "Verify your fit.io email"
+    msg["Subject"] = "Verify your fit-ness.ca email"
     msg["From"] = Config.SMTP_FROM
     msg["To"] = email
     msg.set_content(

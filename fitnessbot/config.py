@@ -43,20 +43,20 @@ class Config:
     # --- Google OAuth ---
     GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
     GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
-    GOOGLE_REDIRECT_URI: str = os.getenv("GOOGLE_REDIRECT_URI", "http://fit.140.238.131.77.nip.io/auth/google/callback")
+    GOOGLE_REDIRECT_URI: str = os.getenv("GOOGLE_REDIRECT_URI", "https://fit-ness.ca/auth/google/callback")
 
     # --- Email (for verification) ---
     SMTP_HOST: str = os.getenv("SMTP_HOST", "")
     SMTP_PORT: int = int(os.getenv("SMTP_PORT", "587"))
     SMTP_USER: str = os.getenv("SMTP_USER", "")
     SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
-    SMTP_FROM: str = os.getenv("SMTP_FROM", "noreply@fit.io")
+    SMTP_FROM: str = os.getenv("SMTP_FROM", "noreply@fit-ness.ca")
 
     # --- Admin ---
     SUPER_ADMIN_EMAIL: str = os.getenv("SUPER_ADMIN_EMAIL", "alexsam89@gmail.com")
 
     # --- App URL ---
-    BASE_URL: str = os.getenv("BASE_URL", "http://fit.140.238.131.77.nip.io")
+    BASE_URL: str = os.getenv("BASE_URL", "https://fit-ness.ca")
 
     # --- Behavior ---
     TIMEZONE: str = os.getenv("TIMEZONE", "America/Toronto")
