@@ -2,6 +2,7 @@
 
 import json
 import logging
+import secrets
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Form, Request
@@ -428,3 +429,15 @@ async def send_summary_to_telegram(request: Request):
     if sent:
         return JSONResponse({"ok": True, "message": "Summary sent to Telegram"})
     return JSONResponse({"ok": False, "error": "Could not send — check Telegram connection in Settings"}, status_code=400)
+
+
+@router.post("/api/invite")
+async def create_invite(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+
+    code = secrets.token_urlsafe(12)
+    db.create_invite_link(user["user_id"], code)
+    link = f"{Config.BASE_URL}/register?invite={code}"
+    return JSONResponse({"ok": True, "link": link, "code": code})

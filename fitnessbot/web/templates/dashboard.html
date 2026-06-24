@@ -41,6 +41,10 @@
       <div class="flex items-baseline justify-between mb-1">
         <span class="eyebrow">Today</span>
         <div class="flex items-center gap-3">
+          <button onclick="generateInvite()" class="text-[10px] text-accent hover:text-accent-press font-medium flex items-center gap-1" title="Generate invite link">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+            Invite
+          </button>
           <button id="sendSummaryBtn" onclick="sendSummary('today')" class="text-[10px] text-accent hover:text-accent-press font-medium flex items-center gap-1" title="Send summary to Telegram">
             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/></svg>
             Send to Telegram
@@ -411,6 +415,28 @@
   </section>
 
 </div>
+
+<!-- ===== INVITE JS ===== -->
+<script>
+async function generateInvite(){
+  try{
+    const r = await fetch('/api/invite',{method:'POST'});
+    const d = await r.json();
+    if(d.ok){
+      if(navigator.share){
+        navigator.share({title:'Join me on fit-ness.ca',url:d.link}).catch(()=>{});
+      } else {
+        await navigator.clipboard.writeText(d.link);
+      }
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 bg-good text-white px-4 py-2 rounded-lg text-sm font-medium shadow-lg z-50';
+      toast.textContent = navigator.share ? 'Invite shared!' : 'Invite link copied!';
+      document.body.appendChild(toast);
+      setTimeout(()=>toast.remove(), 2500);
+    }
+  }catch(e){console.error(e);}
+}
+</script>
 
 <!-- ===== SEND TO TELEGRAM JS ===== -->
 <script>
