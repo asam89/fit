@@ -2840,7 +2840,7 @@ def get_friend_summary(user_id: int, viewer_id: int) -> dict:
             now = datetime.now(timezone.utc)
             monday = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d")
             workouts = conn.execute(
-                "SELECT COUNT(*) as c FROM exercise WHERE user_id=? AND date >= ?",
+                "SELECT COUNT(*) as c FROM exercise WHERE user_id=? AND started_at >= ?",
                 (user_id, monday),
             ).fetchone()
             count = workouts["c"] if workouts else 0
