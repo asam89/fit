@@ -1061,6 +1061,52 @@ def get_meal_items(meal_id: int) -> list[dict]:
         conn.close()
 
 
+def get_meals_by_date(user_id: int, date_str: str) -> list[dict]:
+    """Get all meals for a specific date (YYYY-MM-DD)."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT * FROM meals
+               WHERE user_id = ? AND DATE(logged_at) = ?
+               ORDER BY logged_at DESC""",
+            (user_id, date_str),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_meals_date_range(user_id: int, start_date: str, end_date: str) -> list[dict]:
+    """Get all meals between start_date and end_date (inclusive, YYYY-MM-DD)."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT * FROM meals
+               WHERE user_id = ? AND DATE(logged_at) BETWEEN ? AND ?
+               ORDER BY logged_at DESC""",
+            (user_id, start_date, end_date),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_meal_dates_with_counts(user_id: int, limit: int = 30) -> list[dict]:
+    """Get distinct dates that have meals, with counts, most recent first."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT DATE(logged_at) as date, COUNT(*) as count, SUM(total_calories) as total_cal
+               FROM meals WHERE user_id = ?
+               GROUP BY DATE(logged_at)
+               ORDER BY date DESC LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def delete_last_meal(user_id: int) -> dict | None:
     conn = get_connection()
     try:

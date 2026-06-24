@@ -29,11 +29,13 @@
   .log-chip{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:10px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid #E6E8EE;background:#fff;color:#14161D;transition:all .15s}
   .log-chip:hover{border-color:#2D52F5;color:#2D52F5}
 
+  .meal-day{transition:opacity .15s ease}
+  .meal-dot{transition:all .2s ease}
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 {% endblock %}
 {% block content %}
-<div class="space-y-6">
+<div class="space-y-4">
 
   <!-- ===== TODAY SUMMARY ===== -->
   <section id="today">
@@ -52,11 +54,8 @@
           <span class="text-xs text-faint font-mono">{{ today_date }}</span>
         </div>
       </div>
-      {% if today_summary %}
-      <p class="text-sm text-ink leading-relaxed mt-2">{{ today_summary.prose | safe }}</p>
-      {% if today_summary.eating_focus %}
+      {% if today_summary and today_summary.eating_focus %}
       <p class="text-xs text-accent font-medium mt-2 italic">{{ today_summary.eating_focus }}</p>
-      {% endif %}
       {% endif %}
 
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5">
@@ -141,33 +140,37 @@
     </div>
   </section>
 
-  <!-- ===== GETTING STARTED / ACTION ITEMS ===== -->
+  <!-- ===== GETTING STARTED / ACTION ITEMS (collapsible) ===== -->
   {% if gaps %}
   <section id="gaps">
-    <div class="eyebrow mb-3">Getting Started</div>
-    <div class="space-y-2">
-      {% for gap in gaps %}
-      <a href="{{ gap.link }}" class="block gap-card group hover:border-accent/40 transition-colors cursor-pointer no-underline">
-        <span class="flex items-center gap-3 w-full">
-          {% if gap.icon == 'telegram' %}
-          <span class="flex-shrink-0 w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center">
-            <svg class="w-4 h-4 text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
+    <details {% if gaps|length > 2 %}open{% endif %}>
+      <summary class="eyebrow cursor-pointer hover:text-muted select-none flex items-center gap-2">
+        Action items <span class="text-[10px] text-faint font-normal">{{ gaps|length }}</span>
+      </summary>
+      <div class="space-y-2 mt-2">
+        {% for gap in gaps %}
+        <a href="{{ gap.link }}" class="block gap-card group hover:border-accent/40 transition-colors cursor-pointer no-underline">
+          <span class="flex items-center gap-3 w-full">
+            {% if gap.icon == 'telegram' %}
+            <span class="flex-shrink-0 w-7 h-7 rounded-full bg-blue-50 flex items-center justify-center">
+              <svg class="w-3.5 h-3.5 text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.51 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .38z"/></svg>
+            </span>
+            {% elif gap.icon == 'meal' %}
+            <span class="flex-shrink-0 w-7 h-7 rounded-full bg-amber-50 flex items-center justify-center text-amber-500 text-xs font-bold">!</span>
+            {% elif gap.icon == 'weight' %}
+            <span class="flex-shrink-0 w-7 h-7 rounded-full bg-purple-50 flex items-center justify-center text-purple-500 text-xs font-bold">W</span>
+            {% elif gap.icon == 'key' %}
+            <span class="flex-shrink-0 w-7 h-7 rounded-full bg-green-50 flex items-center justify-center text-green-600 text-xs font-bold">AI</span>
+            {% else %}
+            <span class="dot"></span>
+            {% endif %}
+            <span class="flex-1 text-xs text-gray-700">{{ gap.text }}</span>
+            <span class="flex-shrink-0 text-[10px] font-semibold text-accent group-hover:text-accent-press">{{ gap.link_text }} →</span>
           </span>
-          {% elif gap.icon == 'meal' %}
-          <span class="flex-shrink-0 w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center text-amber-500 text-sm font-bold">!</span>
-          {% elif gap.icon == 'weight' %}
-          <span class="flex-shrink-0 w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center text-purple-500 text-sm font-bold">W</span>
-          {% elif gap.icon == 'key' %}
-          <span class="flex-shrink-0 w-8 h-8 rounded-full bg-green-50 flex items-center justify-center text-green-600 text-sm font-bold">AI</span>
-          {% else %}
-          <span class="dot"></span>
-          {% endif %}
-          <span class="flex-1 text-sm text-gray-700">{{ gap.text }}</span>
-          <span class="flex-shrink-0 text-xs font-semibold text-accent group-hover:text-accent-press">{{ gap.link_text }} →</span>
-        </span>
-      </a>
-      {% endfor %}
-    </div>
+        </a>
+        {% endfor %}
+      </div>
+    </details>
   </section>
   {% endif %}
 
@@ -278,42 +281,27 @@
     </div>
   </section>
 
-  <!-- ===== THIS MONTH SUMMARY ===== -->
-  {% if month_summary %}
+  <!-- ===== THIS MONTH (compact stat pills) ===== -->
+  {% if month_summary and month_summary.logging_days > 0 %}
   <section id="month">
-    <div class="card p-5">
-      <div class="flex items-baseline justify-between mb-2">
-        <span class="eyebrow">This month</span>
-        {% if targets.tdee %}
-        <span class="text-[10px] text-faint font-mono">TDEE ~{{ targets.tdee }} cal ({{ targets.method }})</span>
-        {% endif %}
-      </div>
-      <p class="text-sm text-ink leading-relaxed">{{ month_summary.prose | safe }}</p>
-
-      {% if month_summary.logging_days > 0 %}
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-3 border-t border-gray-100">
-        <div>
-          <div class="text-[10px] text-faint font-mono uppercase tracking-wider mb-0.5">Avg intake</div>
-          <div class="text-sm font-display font-bold">{{ month_summary.avg_calories }} <span class="text-xs font-normal text-muted">cal/day</span></div>
-        </div>
-        <div>
-          <div class="text-[10px] text-faint font-mono uppercase tracking-wider mb-0.5">Logged</div>
-          <div class="text-sm font-display font-bold">{{ month_summary.logging_days }} <span class="text-xs font-normal text-muted">of {{ month_summary.days_in_month }} days</span></div>
-        </div>
-        <div>
-          <div class="text-[10px] text-faint font-mono uppercase tracking-wider mb-0.5">On target</div>
-          <div class="text-sm font-display font-bold">{{ month_summary.days_on_target }} <span class="text-xs font-normal text-muted">days</span></div>
-        </div>
+    <div class="card p-4">
+      <div class="eyebrow mb-2">This month</div>
+      <div class="flex flex-wrap gap-2">
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-accent-soft text-accent text-xs font-medium">
+          {{ month_summary.avg_calories }} cal/day avg
+        </span>
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-100 text-muted text-xs font-medium">
+          {{ month_summary.logging_days }}/{{ month_summary.days_in_month }} days logged
+        </span>
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-good-soft text-good text-xs font-medium">
+          {{ month_summary.days_on_target }} days on target
+        </span>
         {% if month_summary.weight_change is not none %}
-        <div>
-          <div class="text-[10px] text-faint font-mono uppercase tracking-wider mb-0.5">Weight</div>
-          <div class="text-sm font-display font-bold {% if month_summary.weight_change < 0 %}text-good{% elif month_summary.weight_change > 0 %}text-miss{% endif %}">
-            {{ "%.1f"|format(month_summary.weight_change) }} <span class="text-xs font-normal text-muted">lbs</span>
-          </div>
-        </div>
+        <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full {% if month_summary.weight_change < 0 %}bg-good-soft text-good{% else %}bg-warm-soft text-miss{% endif %} text-xs font-medium">
+          {{ "%.1f"|format(month_summary.weight_change) }} lbs
+        </span>
         {% endif %}
       </div>
-      {% endif %}
     </div>
   </section>
   {% endif %}
@@ -435,25 +423,41 @@
     </div>
   </section>
 
-  <!-- ===== RECENT MEALS ===== -->
-  {% if recent_meals %}
+  <!-- ===== TODAY'S MEALS (condensed with dot pagination) ===== -->
   <section id="meals">
-    <div class="card p-5">
-      <div class="eyebrow mb-3">Recent meals</div>
-      <div class="space-y-2">
-        {% for meal in recent_meals %}
-        <div class="flex justify-between items-center py-2 border-b border-gray-50 last:border-0">
-          <div>
-            <p class="text-sm">{{ meal.raw_text[:60] }}{% if meal.raw_text|length > 60 %}…{% endif %}</p>
-            <p class="text-xs text-faint">{{ meal.meal_type or 'meal' }} · {{ meal.source }}</p>
-          </div>
-          <span class="text-sm font-mono font-medium">{{ meal.total_calories|int }} cal</span>
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-2">
+        <span class="eyebrow">Meals</span>
+        <a href="/diary" class="text-[10px] text-accent hover:text-accent-press font-medium">Full diary →</a>
+      </div>
+      <div id="mealsCarousel">
+        <!-- Today's meals -->
+        <div class="meal-day active" data-date="{{ meal_dates[0].date if meal_dates else '' }}">
+          {% if today_meals %}
+            {% for meal in today_meals %}
+            <div class="flex justify-between items-center py-1.5 border-b border-gray-50 last:border-0">
+              <div class="flex-1 min-w-0">
+                <p class="text-sm truncate">{{ meal.raw_text[:50] }}{% if meal.raw_text|length > 50 %}…{% endif %}</p>
+                <p class="text-[10px] text-faint">{{ meal.meal_type or 'meal' }} · {{ meal.logged_at[11:16] if meal.logged_at else '' }}</p>
+              </div>
+              <span class="text-xs font-mono font-medium ml-2 flex-shrink-0">{{ meal.total_calories|int }}</span>
+            </div>
+            {% endfor %}
+          {% else %}
+            <p class="text-xs text-faint py-3 text-center">No meals logged today</p>
+          {% endif %}
         </div>
+      </div>
+      <!-- Dot pagination -->
+      {% if meal_dates|length > 1 %}
+      <div class="flex items-center justify-center gap-1.5 mt-2 pt-2 border-t border-gray-50">
+        {% for d in meal_dates[:7] %}
+        <button class="meal-dot w-2 h-2 rounded-full transition-all {% if loop.first %}bg-accent scale-125{% else %}bg-gray-200 hover:bg-gray-300{% endif %}" data-date="{{ d.date }}" title="{{ d.date }} — {{ d.count }} meal{{ 's' if d.count != 1 else '' }}"></button>
         {% endfor %}
       </div>
+      {% endif %}
     </div>
   </section>
-  {% endif %}
 
   <!-- ===== GOALS ENGINE ===== -->
   <section id="goals">
@@ -512,6 +516,49 @@ async function generateInvite(){
     }
   }catch(e){console.error(e);}
 }
+</script>
+
+<!-- ===== MEAL CAROUSEL JS ===== -->
+<script>
+(function(){
+  const dots = document.querySelectorAll('.meal-dot');
+  const carousel = document.getElementById('mealsCarousel');
+  if(!dots.length || !carousel) return;
+  let activeDot = dots[0];
+
+  dots.forEach(dot => {
+    dot.onclick = async () => {
+      if(dot === activeDot) return;
+      dots.forEach(d => { d.classList.remove('bg-accent','scale-125'); d.classList.add('bg-gray-200'); });
+      dot.classList.remove('bg-gray-200'); dot.classList.add('bg-accent','scale-125');
+      activeDot = dot;
+      const date = dot.dataset.date;
+      try {
+        const r = await fetch('/api/meals/by-date?date=' + date);
+        const data = await r.json();
+        if(data.ok) {
+          let html = '';
+          if(data.meals.length === 0){
+            html = '<p class="text-xs text-faint py-3 text-center">No meals on ' + date + '</p>';
+          } else {
+            data.meals.forEach(meal => {
+              const text = (meal.raw_text||'').slice(0,50) + (meal.raw_text && meal.raw_text.length > 50 ? '\u2026' : '');
+              const time = meal.logged_at ? meal.logged_at.slice(11,16) : '';
+              html += `<div class="flex justify-between items-center py-1.5 border-b border-gray-50 last:border-0">
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm truncate">${text}</p>
+                  <p class="text-[10px] text-faint">${meal.meal_type||'meal'} \u00b7 ${time}</p>
+                </div>
+                <span class="text-xs font-mono font-medium ml-2 flex-shrink-0">${Math.round(meal.total_calories||0)}</span>
+              </div>`;
+            });
+          }
+          carousel.querySelector('.meal-day').innerHTML = html;
+        }
+      } catch(e) { console.error(e); }
+    };
+  });
+})();
 </script>
 
 <!-- ===== TARGETS EDITOR JS ===== -->

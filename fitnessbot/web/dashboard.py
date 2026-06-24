@@ -77,6 +77,8 @@ async def dashboard_home(request: Request):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     totals = db.get_today_totals(uid, today)
     recent_meals = db.get_recent_meals(uid, limit=5)
+    today_meals = db.get_meals_by_date(uid, today)
+    meal_dates = db.get_meal_dates_with_counts(uid, limit=7)
     weight = get_weight_summary(uid)
     connection = db.get_telegram_connection(uid)
     active_goal = db.get_active_goal(uid)
@@ -130,6 +132,8 @@ async def dashboard_home(request: Request):
             "remaining_cal": remaining_cal,
             "gaps": gaps,
             "recent_meals": recent_meals,
+            "today_meals": today_meals,
+            "meal_dates": meal_dates,
             "meal_count": meal_count,
             "weight": weight,
             "weight_goal": weight_goal,
@@ -475,6 +479,58 @@ async def create_invite(request: Request):
     db.create_invite_link(user["user_id"], code)
     link = f"{Config.BASE_URL}/register?invite={code}"
     return JSONResponse({"ok": True, "link": link, "code": code})
+
+
+# --- Food Diary ---
+
+@router.get("/diary", response_class=HTMLResponse)
+async def food_diary(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+    uid = user["user_id"]
+    date_str = request.query_params.get("date", "")
+    if not date_str:
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    meals = db.get_meals_by_date(uid, date_str)
+    meal_dates = db.get_meal_dates_with_counts(uid, limit=60)
+    # Get items for each meal
+    for meal in meals:
+        meal["items"] = db.get_meal_items(meal["meal_id"])
+    return templates.TemplateResponse(
+        "diary.html",
+        {
+            "request": request,
+            "user": user,
+            "current_date": date_str,
+            "meals": meals,
+            "meal_dates": meal_dates,
+        },
+    )
+
+
+@router.get("/api/meals/by-date")
+async def api_meals_by_date(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+    uid = user["user_id"]
+    date_str = request.query_params.get("date", "")
+    if not date_str:
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    meals = db.get_meals_by_date(uid, date_str)
+    for meal in meals:
+        meal["items"] = db.get_meal_items(meal["meal_id"])
+    total_cal = sum(m.get("total_calories", 0) or 0 for m in meals)
+    total_protein = sum(m.get("total_protein", 0) or 0 for m in meals)
+    total_carbs = sum(m.get("total_carbs", 0) or 0 for m in meals)
+    total_fat = sum(m.get("total_fat", 0) or 0 for m in meals)
+    return JSONResponse({
+        "ok": True,
+        "date": date_str,
+        "meals": meals,
+        "totals": {"calories": total_cal, "protein": total_protein, "carbs": total_carbs, "fat": total_fat},
+    })
 
 
 # --- Personal Bests ---
