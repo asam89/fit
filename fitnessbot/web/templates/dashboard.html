@@ -494,6 +494,46 @@
     </div>
   </section>
 
+  <!-- ===== FRIENDS ===== -->
+  <section id="friends-section">
+    <div class="card p-5">
+      <div class="flex items-center justify-between mb-4">
+        <span class="eyebrow">Friends</span>
+        <div class="flex items-center gap-2">
+          <span id="nudge-badge" class="hidden text-xs bg-miss text-white px-2 py-0.5 rounded-full"></span>
+          <button onclick="showFriendSearch()" class="pill text-xs">+ Add Friend</button>
+        </div>
+      </div>
+
+      <!-- Search -->
+      <div id="friend-search" class="hidden mb-4">
+        <div class="flex gap-2">
+          <input id="friend-q" type="text" placeholder="Search by @handle, name, or email" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none">
+          <button onclick="searchFriends()" class="px-3 py-2 bg-accent text-white text-sm rounded-lg font-medium">Search</button>
+        </div>
+        <div id="search-results" class="mt-2 space-y-1"></div>
+      </div>
+
+      <!-- Pending Requests -->
+      <div id="pending-requests" class="hidden mb-4">
+        <div class="text-xs font-semibold text-muted mb-2">Pending Requests</div>
+        <div id="pending-list" class="space-y-1"></div>
+      </div>
+
+      <!-- Friends List -->
+      <div id="friends-list" class="space-y-3">
+        <div id="friends-cards"></div>
+        <p id="no-friends" class="text-sm text-muted hidden">No friends yet. Search by handle or share your invite link!</p>
+      </div>
+
+      <!-- Nudges Inbox -->
+      <div id="nudges-inbox" class="hidden mt-4 border-t border-gray-100 pt-4">
+        <div class="text-xs font-semibold text-muted mb-2">Recent Nudges</div>
+        <div id="nudges-list" class="space-y-2"></div>
+      </div>
+    </div>
+  </section>
+
 </div>
 
 <!-- ===== INVITE JS ===== -->
@@ -1156,6 +1196,216 @@ document.querySelectorAll('[data-range]').forEach(btn=>{
   };
 
   loadPlan();
+})();
+</script>
+
+<!-- ===== FRIENDS JS ===== -->
+<script>
+(function(){
+  const TEMPLATES_CACHE = [];
+
+  async function loadFriends(){
+    try {
+      const [fRes, nRes] = await Promise.all([
+        fetch('/api/social/friends/summaries'),
+        fetch('/api/social/nudges/unread')
+      ]);
+      const fData = await fRes.json();
+      const nData = await nRes.json();
+
+      // Unread badge
+      const badge = document.getElementById('nudge-badge');
+      if(nData.count > 0){
+        badge.textContent = nData.count;
+        badge.classList.remove('hidden');
+      }
+
+      const friends = fData.friends || [];
+      const container = document.getElementById('friends-cards');
+      const noFriends = document.getElementById('no-friends');
+
+      if(!friends.length){
+        noFriends.classList.remove('hidden');
+        container.innerHTML = '';
+        return;
+      }
+      noFriends.classList.add('hidden');
+
+      container.innerHTML = friends.map(f => {
+        if(f.private) return `<div class="p-3 rounded-xl border border-gray-100 flex items-center gap-3">
+          <div class="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-sm font-bold text-gray-500">${(f.display_name||'?')[0].toUpperCase()}</div>
+          <div class="flex-1"><span class="text-sm font-medium">${f.display_name}</span> <span class="text-xs text-faint">@${f.handle||''}</span><p class="text-xs text-muted italic">🔒 Private profile</p></div>
+        </div>`;
+
+        let details = [];
+        if(f.plan_adherence && f.plan_adherence.total > 0){
+          const pct = Math.round((f.plan_adherence.done / f.plan_adherence.total) * 100);
+          details.push(`<span class="inline-flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full">📊 ${pct}% plan done</span>`);
+        }
+        if(f.today_macros && f.today_macros.calories) details.push(`<span class="inline-flex items-center gap-1 text-xs bg-orange-50 text-orange-700 px-2 py-0.5 rounded-full">🍽️ ${f.today_macros.calories} cal</span>`);
+        if(f.workouts_this_week) details.push(`<span class="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">🏋️ ${f.workouts_this_week} workouts</span>`);
+        if(f.latest_weight) details.push(`<span class="inline-flex items-center gap-1 text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded-full">⚖️ ${f.latest_weight.weight} lbs</span>`);
+        if(f.goal) details.push(`<span class="inline-flex items-center gap-1 text-xs bg-yellow-50 text-yellow-700 px-2 py-0.5 rounded-full">🎯 ${f.goal.title||f.goal.goal_type||'Active goal'}</span>`);
+
+        return `<div class="p-4 rounded-xl border border-gray-100 hover:border-accent/30 transition-colors">
+          <div class="flex items-center gap-3 mb-2">
+            <div class="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-sm font-bold text-accent">${(f.display_name||'?')[0].toUpperCase()}</div>
+            <div class="flex-1">
+              <span class="text-sm font-semibold">${f.display_name}</span>
+              ${f.handle ? '<span class="text-xs text-faint ml-1">@'+f.handle+'</span>' : ''}
+            </div>
+            <button onclick="showNudgePicker(${f.friendship_id}, ${f.user_id || 0})" class="px-2 py-1 text-xs bg-accent/10 text-accent rounded-full hover:bg-accent/20 transition-colors" title="Send a nudge">💬 Poke</button>
+            <button onclick="removeFriend(${f.friendship_id})" class="text-xs text-faint hover:text-miss ml-1">✕</button>
+          </div>
+          ${details.length ? '<div class="flex flex-wrap gap-1.5 ml-13 pl-13">'+details.join('')+'</div>' : '<div class="ml-13 pl-13 text-xs text-muted">Waiting for activity...</div>'}
+        </div>`;
+      }).join('');
+    } catch(e) { console.error('Friends load error', e); }
+  }
+
+  async function loadPending(){
+    const res = await fetch('/api/social/friends');
+    const data = await res.json();
+    const pending = data.pending || [];
+    const section = document.getElementById('pending-requests');
+    const list = document.getElementById('pending-list');
+    if(!pending.length){ section.classList.add('hidden'); return; }
+    section.classList.remove('hidden');
+    list.innerHTML = pending.map(p => `<div class="flex items-center justify-between p-2 rounded-lg border border-gray-100">
+      <span class="text-sm">${p.display_name} ${p.handle ? '@'+p.handle : ''}</span>
+      <div class="flex gap-1">
+        <button onclick="acceptFriend(${p.friendship_id})" class="text-xs bg-accent text-white px-2 py-1 rounded">Accept</button>
+        <button onclick="declineFriend(${p.friendship_id})" class="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded">Decline</button>
+      </div>
+    </div>`).join('');
+  }
+
+  async function loadNudges(){
+    const res = await fetch('/api/social/nudges');
+    const data = await res.json();
+    const nudges = data.nudges || [];
+    const section = document.getElementById('nudges-inbox');
+    const list = document.getElementById('nudges-list');
+    if(!nudges.length) return;
+    section.classList.remove('hidden');
+    list.innerHTML = nudges.slice(0,10).map(n => {
+      const text = n.template_text || n.body || n.emoji || 'Hey!';
+      const emoji = n.template_emoji || n.emoji || '💬';
+      return `<div class="flex items-center gap-2 text-sm p-2 rounded-lg bg-gray-50">
+        <span>${emoji}</span>
+        <span class="font-medium">${n.sender_name||'Friend'}</span>
+        <span class="text-muted">${text}</span>
+        <span class="text-xs text-faint ml-auto">${timeAgo(n.created_at)}</span>
+      </div>`;
+    }).join('');
+  }
+
+  function timeAgo(ts){
+    if(!ts) return '';
+    const diff = (Date.now() - new Date(ts+'Z').getTime())/1000;
+    if(diff < 60) return 'now';
+    if(diff < 3600) return Math.floor(diff/60)+'m';
+    if(diff < 86400) return Math.floor(diff/3600)+'h';
+    return Math.floor(diff/86400)+'d';
+  }
+
+  window.showFriendSearch = function(){
+    document.getElementById('friend-search').classList.toggle('hidden');
+    document.getElementById('friend-q').focus();
+  };
+
+  window.searchFriends = async function(){
+    const q = document.getElementById('friend-q').value.trim();
+    if(q.length < 2) return;
+    const res = await fetch('/api/social/search?q='+encodeURIComponent(q));
+    const data = await res.json();
+    const results = data.results || [];
+    const container = document.getElementById('search-results');
+    if(!results.length){ container.innerHTML = '<p class="text-xs text-muted">No users found</p>'; return; }
+    container.innerHTML = results.map(u => `<div class="flex items-center justify-between p-2 rounded-lg border border-gray-100">
+      <span class="text-sm">${u.display_name} ${u.handle ? '<span class="text-faint">@'+u.handle+'</span>' : ''}</span>
+      <button onclick="sendRequest(${u.user_id})" class="text-xs bg-accent text-white px-2 py-1 rounded">Add</button>
+    </div>`).join('');
+  };
+
+  window.sendRequest = async function(uid){
+    const res = await fetch('/api/social/friends/request', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id:uid})});
+    const data = await res.json();
+    if(res.ok){ alert('Friend request sent!'); document.getElementById('search-results').innerHTML=''; }
+    else alert(data.error||'Failed');
+  };
+
+  window.acceptFriend = async function(fid){
+    await fetch('/api/social/friends/accept', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({friendship_id:fid})});
+    loadPending(); loadFriends();
+  };
+
+  window.declineFriend = async function(fid){
+    await fetch('/api/social/friends/decline', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({friendship_id:fid})});
+    loadPending();
+  };
+
+  window.removeFriend = async function(fid){
+    if(!confirm('Remove this friend?')) return;
+    await fetch('/api/social/friends/remove', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({friendship_id:fid})});
+    loadFriends();
+  };
+
+  window.showNudgePicker = async function(fid, uid){
+    if(!TEMPLATES_CACHE.length){
+      const res = await fetch('/api/social/nudges/templates');
+      const d = await res.json();
+      TEMPLATES_CACHE.push(...(d.templates||[]));
+    }
+    const categories = {cheer:'🎉 Hype', trash_talk:'🗑️ Trash Talk', motivation:'💪 Motivation', recovery:'😴 Recovery', progress:'📈 Progress'};
+    const grouped = {};
+    TEMPLATES_CACHE.forEach(t => {
+      if(!grouped[t.category]) grouped[t.category] = [];
+      grouped[t.category].push(t);
+    });
+    let picker = '';
+    for(const [cat, label] of Object.entries(categories)){
+      if(!grouped[cat]) continue;
+      picker += `<div class="w-full mb-2"><div class="text-xs font-semibold text-muted mb-1">${label}</div><div class="flex flex-wrap gap-1">`;
+      picker += grouped[cat].map(t =>
+        `<button onclick="sendNudge(${uid},'${t.key}')" class="px-2 py-1 text-xs rounded-full border border-gray-200 hover:bg-accent/10 hover:border-accent transition-colors">${t.emoji} ${t.text}</button>`
+      ).join('');
+      picker += `</div></div>`;
+    }
+    picker += `<div class="w-full mt-3 pt-3 border-t border-gray-100"><div class="text-xs font-semibold text-muted mb-1">✍️ Custom</div><div class="flex gap-1"><input id="customNudge" type="text" maxlength="200" placeholder="Write your own roast..." class="flex-1 px-2 py-1 border rounded text-xs"><button onclick="sendCustomNudge(${uid})" class="px-2 py-1 bg-accent text-white text-xs rounded">Send</button></div></div>`;
+    const modal = document.createElement('div');
+    modal.id = 'nudge-modal';
+    modal.className = 'fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4';
+    modal.onclick = function(e){ if(e.target===modal) modal.remove(); };
+    modal.innerHTML = `<div class="bg-white rounded-xl p-5 max-w-md w-full shadow-xl max-h-[80vh] overflow-y-auto"><div class="flex justify-between items-center mb-4"><span class="text-base font-semibold">Send a Nudge 💬</span><button onclick="document.getElementById('nudge-modal').remove()" class="text-faint hover:text-gray-700 text-lg">✕</button></div><div>${picker}</div></div>`;
+    document.body.appendChild(modal);
+  };
+
+  window.sendNudge = async function(uid, key){
+    const res = await fetch('/api/social/nudges/send', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({recipient_id:uid, kind:'preset', template_key:key})});
+    const m = document.getElementById('nudge-modal'); if(m) m.remove();
+    if(res.ok){
+      const toast = document.createElement('div');
+      toast.className = 'fixed bottom-4 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-sm px-4 py-2 rounded-full shadow-lg z-50';
+      toast.textContent = 'Nudge sent! 🎉';
+      document.body.appendChild(toast);
+      setTimeout(()=>toast.remove(), 2000);
+    } else { const d = await res.json(); alert(d.error||'Rate limit reached (10/day per friend)'); }
+  };
+
+  window.sendCustomNudge = async function(uid){
+    const input = document.getElementById('customNudge');
+    const body = input.value.trim();
+    if(!body) return;
+    const res = await fetch('/api/social/nudges/send', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({recipient_id:uid, kind:'custom', body:body})});
+    if(res.ok){ const m = document.getElementById('nudge-modal'); if(m) m.remove(); }
+    else { const d = await res.json(); alert(d.error||'Failed'); }
+  };
+
+  // Init
+  loadFriends();
+  loadPending();
+  loadNudges();
 })();
 </script>
 {% endblock %}
