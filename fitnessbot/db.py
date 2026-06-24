@@ -2141,3 +2141,46 @@ def verify_email(user_id: int) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def set_weight_goal(user_id: int, weight_goal: float) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            """INSERT INTO goals (user_id, goal_type, title, target_weight, start_date, status)
+               VALUES (?, 'maintain', 'Weight goal', ?, date('now'), 'active')
+               ON CONFLICT(user_id, goal_type) DO UPDATE SET
+                 target_weight = excluded.target_weight""",
+            (user_id, weight_goal),
+        )
+        conn.commit()
+    except Exception:
+        # goals table may not have unique constraint — update existing active goal
+        conn.execute(
+            """UPDATE goals SET target_weight = ?
+               WHERE user_id = ? AND status = 'active' AND goal_type IN ('cut','bulk','maintain')""",
+            (weight_goal, user_id),
+        )
+        if conn.total_changes == 0:
+            conn.execute(
+                """INSERT INTO goals (user_id, goal_type, title, target_weight, start_date, status)
+                   VALUES (?, 'maintain', 'Weight goal', ?, date('now'), 'active')""",
+                (user_id, weight_goal),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_weight_goal(user_id: int) -> float | None:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            """SELECT target_weight FROM goals
+               WHERE user_id = ? AND status = 'active' AND target_weight IS NOT NULL
+               ORDER BY goal_id DESC LIMIT 1""",
+            (user_id,),
+        ).fetchone()
+        return row["target_weight"] if row else None
+    finally:
+        conn.close()

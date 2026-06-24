@@ -77,6 +77,8 @@ def build_morning_brief(user_id: int) -> str:
 
     lines.append("")
     lines.append("Log breakfast when you eat.")
+    lines.append("")
+    lines.append(f"[View dashboard]({Config.BASE_URL}/dashboard)")
     return "\n".join(lines)
 
 
@@ -107,6 +109,8 @@ def build_midday_check(user_id: int) -> str:
         lines.append("")
         lines.append("Only one meal so far — log lunch when you eat.")
 
+    lines.append("")
+    lines.append(f"[View dashboard]({Config.BASE_URL}/dashboard)")
     return "\n".join(lines)
 
 
@@ -160,6 +164,8 @@ def build_evening_wrap(user_id: int) -> str:
         for n in nudges:
             lines.append(n)
 
+    lines.append("")
+    lines.append(f"[View dashboard]({Config.BASE_URL}/dashboard)")
     return "\n".join(lines)
 
 
@@ -191,6 +197,8 @@ def build_weekly_rollup(user_id: int) -> str:
         lines.append("")
         lines.append(f"Training  {adherence['label']} planned activities")
 
+    lines.append("")
+    lines.append(f"[View dashboard]({Config.BASE_URL}/dashboard)")
     return "\n".join(lines)
 
 

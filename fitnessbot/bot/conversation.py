@@ -862,6 +862,10 @@ async def process_message(user_id: int, text: str, channel: str = "text") -> str
     else:
         reply = _deterministic_confirmation(act_results, user_id)
 
+    # Append dashboard link
+    from fitnessbot.config import Config
+    reply += f"\n\n[View dashboard]({Config.BASE_URL}/dashboard)"
+
     # 4. LOG
     try:
         db.insert_message_log(

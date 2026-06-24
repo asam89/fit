@@ -114,6 +114,7 @@ async def dashboard_home(request: Request):
     # Build rich summaries
     today_summary = build_today_summary(uid)
     month_summary = build_month_summary(uid)
+    weight_goal = db.get_weight_goal(uid)
 
     return templates.TemplateResponse(
         "dashboard.html",
@@ -131,6 +132,7 @@ async def dashboard_home(request: Request):
             "recent_meals": recent_meals,
             "meal_count": meal_count,
             "weight": weight,
+            "weight_goal": weight_goal,
             "connection": connection,
             "active_goal": active_goal,
             "archived_goals": archived_goals,
@@ -162,6 +164,38 @@ async def api_targets_refresh(request: Request):
     targets = compute_targets(uid)
     db.upsert_nutrition_targets(uid, targets)
     return JSONResponse(targets)
+
+
+@router.post("/api/targets/set")
+async def api_targets_set(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+    uid = user["user_id"]
+    data = await request.json()
+    targets = {
+        "tdee": data.get("calories", 2000),
+        "calories": data.get("calories", 2000),
+        "protein": data.get("protein", 150),
+        "carbs": data.get("carbs", 200),
+        "fat": data.get("fat", 65),
+        "fiber": data.get("fiber", 30),
+        "goal_type": data.get("goal_type", "maintain"),
+        "method": "manual",
+    }
+    db.upsert_nutrition_targets(uid, targets)
+    if data.get("weight_goal") is not None:
+        db.set_weight_goal(uid, data["weight_goal"])
+    return JSONResponse({"ok": True, **targets})
+
+
+@router.get("/api/weight-goal")
+async def api_weight_goal(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+    goal = db.get_weight_goal(user["user_id"])
+    return JSONResponse({"weight_goal": goal})
 
 
 @router.get("/api/trends")
