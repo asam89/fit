@@ -475,3 +475,45 @@ async def create_invite(request: Request):
     db.create_invite_link(user["user_id"], code)
     link = f"{Config.BASE_URL}/register?invite={code}"
     return JSONResponse({"ok": True, "link": link, "code": code})
+
+
+# --- Personal Bests ---
+
+@router.get("/api/personal-bests")
+async def get_personal_bests(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+    pbs = db.get_top_personal_bests(user["user_id"])
+    return JSONResponse({"ok": True, "personal_bests": pbs})
+
+
+@router.post("/api/personal-bests")
+async def create_personal_best(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+    data = await request.json()
+    exercise = data.get("exercise_name", "").strip()
+    value = data.get("value")
+    unit = data.get("unit", "")
+    notes = data.get("notes", "")
+    if not exercise or value is None:
+        return JSONResponse({"error": "exercise_name and value required"}, status_code=400)
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "value must be a number"}, status_code=400)
+    pb_id = db.insert_personal_best(user["user_id"], exercise, value, unit, notes)
+    return JSONResponse({"ok": True, "pb_id": pb_id})
+
+
+@router.delete("/api/personal-bests/{pb_id}")
+async def delete_personal_best(pb_id: int, request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+    deleted = db.delete_personal_best(pb_id, user["user_id"])
+    if not deleted:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    return JSONResponse({"ok": True})
