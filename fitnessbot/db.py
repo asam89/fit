@@ -915,6 +915,31 @@ def run_migrations() -> None:
 
             conn.execute("INSERT INTO schema_version (version) VALUES (15)")
             conn.commit()
+
+        if current < 16:
+            # Add photo_path to meals, add fiber/sugar/sodium totals to meals
+            for col_name, col_type in [
+                ("photo_path", "TEXT"),
+                ("total_fiber", "REAL DEFAULT 0"),
+                ("total_sugar", "REAL DEFAULT 0"),
+                ("total_sodium", "REAL DEFAULT 0"),
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE meals ADD COLUMN {col_name} {col_type}")
+                except sqlite3.OperationalError:
+                    pass
+            # Add fiber/sugar/sodium to meal_items
+            for col_name, col_type in [
+                ("fiber", "REAL DEFAULT 0"),
+                ("sugar", "REAL DEFAULT 0"),
+                ("sodium", "REAL DEFAULT 0"),
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE meal_items ADD COLUMN {col_name} {col_type}")
+                except sqlite3.OperationalError:
+                    pass
+            conn.execute("INSERT INTO schema_version (version) VALUES (16)")
+            conn.commit()
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
         init_db()
@@ -1057,14 +1082,20 @@ def insert_meal(
     total_protein: float,
     total_carbs: float,
     total_fat: float,
+    total_fiber: float = 0,
+    total_sugar: float = 0,
+    total_sodium: float = 0,
+    photo_path: str | None = None,
 ) -> int:
     conn = get_connection()
     try:
         cursor = conn.execute(
             """INSERT INTO meals
-               (user_id, raw_text, meal_type, source, total_calories, total_protein, total_carbs, total_fat)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, raw_text, meal_type, source, total_calories, total_protein, total_carbs, total_fat),
+               (user_id, raw_text, meal_type, source, total_calories, total_protein,
+                total_carbs, total_fat, total_fiber, total_sugar, total_sodium, photo_path)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, raw_text, meal_type, source, total_calories, total_protein,
+             total_carbs, total_fat, total_fiber, total_sugar, total_sodium, photo_path),
         )
         conn.commit()
         return cursor.lastrowid
@@ -1111,14 +1142,17 @@ def insert_meal_item(
     protein: float,
     carbs: float,
     fat: float,
+    fiber: float = 0,
+    sugar: float = 0,
+    sodium: float = 0,
 ) -> int:
     conn = get_connection()
     try:
         cursor = conn.execute(
             """INSERT INTO meal_items
-               (meal_id, food_id, qty, unit, calories, protein, carbs, fat)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (meal_id, food_id, qty, unit, calories, protein, carbs, fat),
+               (meal_id, food_id, qty, unit, calories, protein, carbs, fat, fiber, sugar, sodium)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (meal_id, food_id, qty, unit, calories, protein, carbs, fat, fiber, sugar, sodium),
         )
         conn.commit()
         return cursor.lastrowid
@@ -1134,7 +1168,10 @@ def get_today_totals(user_id: int, date_str: str) -> dict:
                  COALESCE(SUM(total_calories), 0) as calories,
                  COALESCE(SUM(total_protein), 0) as protein,
                  COALESCE(SUM(total_carbs), 0) as carbs,
-                 COALESCE(SUM(total_fat), 0) as fat
+                 COALESCE(SUM(total_fat), 0) as fat,
+                 COALESCE(SUM(total_fiber), 0) as fiber,
+                 COALESCE(SUM(total_sugar), 0) as sugar,
+                 COALESCE(SUM(total_sodium), 0) as sodium
                FROM meals
                WHERE user_id = ? AND DATE(logged_at) = ?""",
             (user_id, date_str),

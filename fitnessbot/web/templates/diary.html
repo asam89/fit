@@ -78,6 +78,11 @@
     {% if meals %}
       {% for meal in meals %}
       <div class="meal-card" data-meal-id="{{ meal.meal_id }}">
+        {% if meal.photo_path %}
+        <div class="mb-2">
+          <img src="{{ meal.photo_path }}" alt="meal photo" class="w-full h-32 rounded-lg object-cover" loading="lazy">
+        </div>
+        {% endif %}
         <div class="flex items-start justify-between mb-2">
           <div>
             <p class="text-sm font-medium text-ink">{{ meal.raw_text[:80] }}{% if meal.raw_text|length > 80 %}...{% endif %}</p>
@@ -113,10 +118,13 @@
           {% endfor %}
         </div>
         {% endif %}
-        <div class="flex gap-4 mt-2 text-[11px] text-faint">
+        <div class="flex flex-wrap gap-3 mt-2 text-[11px] text-faint">
           <span>P: {{ meal.total_protein|int if meal.total_protein else 0 }}g</span>
           <span>C: {{ meal.total_carbs|int if meal.total_carbs else 0 }}g</span>
           <span>F: {{ meal.total_fat|int if meal.total_fat else 0 }}g</span>
+          {% if meal.total_fiber %}<span>Fiber: {{ meal.total_fiber|int }}g</span>{% endif %}
+          {% if meal.total_sugar %}<span>Sugar: {{ meal.total_sugar|int }}g</span>{% endif %}
+          {% if meal.total_sodium %}<span>Na: {{ meal.total_sodium|int }}mg</span>{% endif %}
         </div>
       </div>
       {% endfor %}

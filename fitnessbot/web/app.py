@@ -14,6 +14,11 @@ def create_app() -> FastAPI:
     # Static files
     app.mount("/static", StaticFiles(directory=str(Config.STATIC_DIR)), name="static")
 
+    # Uploaded meal photos
+    Config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    uploads_root = Config.UPLOAD_DIR.parent.parent  # data/uploads
+    app.mount("/uploads", StaticFiles(directory=str(uploads_root)), name="uploads")
+
     # Include route modules
     app.include_router(auth.router)
     app.include_router(dashboard.router)

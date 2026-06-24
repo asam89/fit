@@ -103,6 +103,36 @@
             <div class="bg-rose-400 h-2 rounded-full" style="width:{{ pct.fat }}%"></div>
           </div>
         </div>
+        <!-- Fiber -->
+        <div class="flex flex-col justify-center">
+          <div class="flex justify-between text-xs mb-1">
+            <span class="font-medium">Fiber</span>
+            <span class="text-faint font-mono">{{ totals.fiber|default(0)|int }}g / {{ targets.fiber|default(25) }}g</span>
+          </div>
+          <div class="w-full bg-gray-100 rounded-full h-2">
+            <div class="bg-emerald-500 h-2 rounded-full" style="width:{{ pct.fiber|default(0) }}%"></div>
+          </div>
+        </div>
+        <!-- Sugar -->
+        <div class="flex flex-col justify-center">
+          <div class="flex justify-between text-xs mb-1">
+            <span class="font-medium">Sugar</span>
+            <span class="text-faint font-mono">{{ totals.sugar|default(0)|int }}g / {{ targets.sugar|default(50) }}g</span>
+          </div>
+          <div class="w-full bg-gray-100 rounded-full h-2">
+            <div class="bg-pink-500 h-2 rounded-full" style="width:{{ pct.sugar|default(0) }}%"></div>
+          </div>
+        </div>
+        <!-- Sodium -->
+        <div class="flex flex-col justify-center">
+          <div class="flex justify-between text-xs mb-1">
+            <span class="font-medium">Sodium</span>
+            <span class="text-faint font-mono">{{ totals.sodium|default(0)|int }}mg / {{ targets.sodium|default(2300) }}mg</span>
+          </div>
+          <div class="w-full bg-gray-100 rounded-full h-2">
+            <div class="bg-orange-500 h-2 rounded-full" style="width:{{ pct.sodium|default(0) }}%"></div>
+          </div>
+        </div>
       </div>
 
       <!-- Weight + status row -->
@@ -435,7 +465,10 @@
         <div class="meal-day active" data-date="{{ meal_dates[0].date if meal_dates else '' }}">
           {% if today_meals %}
             {% for meal in today_meals %}
-            <div class="flex justify-between items-center py-1.5 border-b border-gray-50 last:border-0">
+            <div class="flex items-center gap-2 py-1.5 border-b border-gray-50 last:border-0">
+              {% if meal.photo_path %}
+              <img src="{{ meal.photo_path }}" alt="meal photo" class="w-10 h-10 rounded-md object-cover flex-shrink-0" loading="lazy">
+              {% endif %}
               <div class="flex-1 min-w-0">
                 <p class="text-sm truncate">{{ meal.raw_text[:50] }}{% if meal.raw_text|length > 50 %}…{% endif %}</p>
                 <p class="text-[10px] text-faint">{{ meal.meal_type or 'meal' }} · {{ meal.logged_at[11:16] if meal.logged_at else '' }}</p>
@@ -594,7 +627,9 @@ async function generateInvite(){
             data.meals.forEach(meal => {
               const text = (meal.raw_text||'').slice(0,50) + (meal.raw_text && meal.raw_text.length > 50 ? '\u2026' : '');
               const time = meal.logged_at ? meal.logged_at.slice(11,16) : '';
-              html += `<div class="flex justify-between items-center py-1.5 border-b border-gray-50 last:border-0">
+              const photo = meal.photo_path ? `<img src="${meal.photo_path}" alt="meal" class="w-10 h-10 rounded-md object-cover flex-shrink-0" loading="lazy">` : '';
+              html += `<div class="flex items-center gap-2 py-1.5 border-b border-gray-50 last:border-0">
+                ${photo}
                 <div class="flex-1 min-w-0">
                   <p class="text-sm truncate">${text}</p>
                   <p class="text-[10px] text-faint">${meal.meal_type||'meal'} \u00b7 ${time}</p>

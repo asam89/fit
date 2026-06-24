@@ -172,6 +172,12 @@ def compute_targets(user_id: int) -> dict:
     # Fiber: 14g per 1000 cal
     fiber_target = round(calorie_target * 14 / 1000)
 
+    # Sugar: ~10% of calories from sugar (WHO recommendation)
+    sugar_target = round(calorie_target * 0.10 / 4)
+
+    # Sodium: FDA daily limit 2300 mg
+    sodium_target = 2300
+
     return {
         "tdee": round(tdee),
         "goal_type": goal_type,
@@ -180,6 +186,8 @@ def compute_targets(user_id: int) -> dict:
         "carbs": carbs_target,
         "fat": fat_target,
         "fiber": fiber_target,
+        "sugar": sugar_target,
+        "sodium": sodium_target,
         "method": method,
         "weight_used": current_weight,
     }
@@ -215,6 +223,8 @@ def _default_targets() -> dict:
         "carbs": 220,
         "fat": 60,
         "fiber": 30,
+        "sugar": 55,
+        "sodium": 2300,
         "method": "default",
         "weight_used": None,
     }

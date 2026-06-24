@@ -67,3 +67,4 @@ class Config:
     BASE_DIR: Path = Path(__file__).resolve().parent.parent
     TEMPLATE_DIR: Path = Path(__file__).resolve().parent / "web" / "templates"
     STATIC_DIR: Path = BASE_DIR / "static"
+    UPLOAD_DIR: Path = BASE_DIR / "data" / "uploads" / "meals"
