@@ -2822,10 +2822,18 @@ def get_friend_summary(user_id: int, viewer_id: int) -> dict:
 
         if settings.get("share_diet"):
             totals = conn.execute(
-                "SELECT calories, protein, carbs, fat FROM daily_summary WHERE user_id=? AND date=?",
+                "SELECT total_calories as calories, protein, carbs, fat FROM daily_summary WHERE user_id=? AND date=?",
                 (user_id, today),
             ).fetchone()
-            summary["today_macros"] = dict(totals) if totals else None
+            if not totals or not totals["calories"]:
+                # Fallback: sum from meals table directly
+                meal_totals = conn.execute(
+                    "SELECT SUM(total_calories) as calories, SUM(total_protein) as protein, SUM(total_carbs) as carbs, SUM(total_fat) as fat FROM meals WHERE user_id=? AND logged_at >= ?",
+                    (user_id, today),
+                ).fetchone()
+                summary["today_macros"] = dict(meal_totals) if meal_totals and meal_totals["calories"] else None
+            else:
+                summary["today_macros"] = dict(totals)
 
         if settings.get("share_workouts"):
             from datetime import timedelta
@@ -2835,11 +2843,19 @@ def get_friend_summary(user_id: int, viewer_id: int) -> dict:
                 "SELECT COUNT(*) as c FROM exercise WHERE user_id=? AND date >= ?",
                 (user_id, monday),
             ).fetchone()
-            summary["workouts_this_week"] = workouts["c"] if workouts else 0
+            count = workouts["c"] if workouts else 0
+            if count == 0:
+                # Fallback: check daily_workouts (completed ones)
+                dw = conn.execute(
+                    "SELECT COUNT(*) as c FROM daily_workouts WHERE user_id=? AND scheduled_date >= ? AND completed=1",
+                    (user_id, monday),
+                ).fetchone()
+                count = dw["c"] if dw else 0
+            summary["workouts_this_week"] = count
 
         if settings.get("share_weight"):
             weight_row = conn.execute(
-                "SELECT weight, date FROM weight_log WHERE user_id=? ORDER BY date DESC LIMIT 1",
+                "SELECT raw_weight as weight, date FROM weight_trend WHERE user_id=? ORDER BY date DESC LIMIT 1",
                 (user_id,),
             ).fetchone()
             summary["latest_weight"] = dict(weight_row) if weight_row else None
