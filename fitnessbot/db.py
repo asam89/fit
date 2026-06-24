@@ -878,31 +878,31 @@ def run_migrations() -> None:
             # Seed nudge templates
             templates = [
                 # Hype / Cheer
-                ("good_work", "Good work today!", "\ud83d\udcaa", "cheer"),
-                ("beast_mode", "Beast mode activated", "\ud83d\udd25", "cheer"),
-                ("proud", "Proud of you fr", "\ud83d\ude4c", "cheer"),
-                ("unstoppable", "Unstoppable", "\ud83d\ude80", "cheer"),
-                ("keep_going", "Keep going!", "\ud83d\udcaf", "motivation"),
-                ("streak_fire", "Streak on fire", "\ud83d\udd25", "progress"),
+                ("good_work", "Good work today!", "💪", "cheer"),
+                ("beast_mode", "Beast mode activated", "🔥", "cheer"),
+                ("proud", "Proud of you fr", "🙌", "cheer"),
+                ("unstoppable", "Unstoppable", "🚀", "cheer"),
+                ("keep_going", "Keep going!", "💯", "motivation"),
+                ("streak_fire", "Streak on fire", "🔥", "progress"),
                 # Trash talk / Cheeky
-                ("couch_potato", "Get off the couch", "\ud83d\udecb\ufe0f", "trash_talk"),
-                ("skipped_legs", "You skipped leg day didn't you", "\ud83e\uddb5", "trash_talk"),
-                ("gym_miss", "Gym misses you more than your ex", "\ud83d\udc94", "trash_talk"),
-                ("eating_good", "I see you eating good \ud83d\udc40", "\ud83c\udf55", "trash_talk"),
-                ("snack_attack", "Put the snacks down", "\ud83c\udf6a", "trash_talk"),
-                ("cardio_who", "Cardio? Never heard of her", "\ud83c\udfc3", "trash_talk"),
+                ("couch_potato", "Get off the couch", "🛋\ufe0f", "trash_talk"),
+                ("skipped_legs", "You skipped leg day didn't you", "🦵", "trash_talk"),
+                ("gym_miss", "Gym misses you more than your ex", "💔", "trash_talk"),
+                ("eating_good", "I see you eating good 👀", "🍕", "trash_talk"),
+                ("snack_attack", "Put the snacks down", "🍪", "trash_talk"),
+                ("cardio_who", "Cardio? Never heard of her", "🏃", "trash_talk"),
                 ("sleeping_in", "Still sleeping? It's gym o'clock", "\u23f0", "trash_talk"),
-                ("weak_sauce", "That's weak sauce", "\ud83d\ude24", "trash_talk"),
-                ("outpacing", "I'm outpacing you this week", "\ud83d\ude0f", "trash_talk"),
-                ("catching_up", "Better catch up", "\ud83c\udfce\ufe0f", "trash_talk"),
+                ("weak_sauce", "That's weak sauce", "😤", "trash_talk"),
+                ("outpacing", "I'm outpacing you this week", "😏", "trash_talk"),
+                ("catching_up", "Better catch up", "🏎\ufe0f", "trash_talk"),
                 # Motivation
-                ("where_gym", "Where's the gym today?", "\ud83c\udfcb\ufe0f", "motivation"),
-                ("protein_check", "Did you hit your protein?", "\ud83e\udd69", "motivation"),
-                ("water_check", "Drink water!", "\ud83d\udca7", "motivation"),
-                ("go_outside", "Touch grass", "\ud83c\udf3f", "motivation"),
+                ("where_gym", "Where's the gym today?", "🏋\ufe0f", "motivation"),
+                ("protein_check", "Did you hit your protein?", "🥩", "motivation"),
+                ("water_check", "Drink water!", "💧", "motivation"),
+                ("go_outside", "Touch grass", "🌿", "motivation"),
                 # Recovery
-                ("rest_day", "Rest day earned", "\ud83d\ude34", "recovery"),
-                ("stretch", "Stretch! Your muscles are begging", "\ud83e\uddd8", "recovery"),
+                ("rest_day", "Rest day earned", "😴", "recovery"),
+                ("stretch", "Stretch! Your muscles are begging", "🧘", "recovery"),
             ]
             for key, text, emoji, category in templates:
                 try:
