@@ -573,3 +573,32 @@ async def delete_personal_best(pb_id: int, request: Request):
     if not deleted:
         return JSONResponse({"error": "Not found"}, status_code=404)
     return JSONResponse({"ok": True})
+
+
+@router.post("/api/meals/{meal_id}/delete")
+async def api_delete_meal(meal_id: int, request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+    deleted = db.delete_meal_by_id(meal_id, user["user_id"])
+    if not deleted:
+        return JSONResponse({"error": "Meal not found"}, status_code=404)
+    return JSONResponse({"ok": True, "deleted": deleted})
+
+
+class MealTypeUpdate(BaseModel):
+    meal_type: str
+
+
+@router.patch("/api/meals/{meal_id}/type")
+async def api_update_meal_type(meal_id: int, body: MealTypeUpdate, request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+    valid_types = {"breakfast", "lunch", "snack", "dinner", "midnight snack"}
+    if body.meal_type.lower() not in valid_types:
+        return JSONResponse({"error": "Invalid meal type"}, status_code=400)
+    updated = db.update_meal_type(meal_id, user["user_id"], body.meal_type.lower())
+    if not updated:
+        return JSONResponse({"error": "Meal not found"}, status_code=404)
+    return JSONResponse({"ok": True, "meal_type": body.meal_type.lower()})
