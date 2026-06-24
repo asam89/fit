@@ -815,17 +815,20 @@ document.querySelectorAll('[data-range]').forEach(btn=>{
         dayItems.forEach(item => {
           const icon = ICONS[item.activity_type]||'\u2B50';
           let cls = 'text-ink';
-          let mark = '';
-          if(item.display_status==='completed'){cls='text-good line-through';mark=' \u2713';}
-          else if(item.display_status==='missed'){cls='text-miss';mark=' \u2717';}
+          if(item.display_status==='completed'){cls='text-good';}
+          else if(item.display_status==='missed'){cls='text-miss';}
           const dur = item.planned_duration_min ? ` <span class="text-faint">${item.planned_duration_min}m</span>` : '';
 
-          html += `<div class="flex items-center gap-0.5 mb-0.5 cursor-pointer group ${cls}" data-item="${item.item_id}">`;
-          html += `<span class="text-[10px]">${icon}</span>`;
-          html += `<span class="text-[10px] truncate flex-1">${item.title}${dur}${mark}</span>`;
-          if(item.display_status!=='missed'){
-            html += `<button class="plan-complete-btn opacity-0 group-hover:opacity-100 text-[9px] ${item.status==='completed'?'text-good':'text-accent'}" data-id="${item.item_id}">${item.status==='completed'?'\u21A9':'\u2713'}</button>`;
+          html += `<div class="flex items-center gap-1 mb-1 cursor-pointer group ${cls}" data-item="${item.item_id}">`;
+          if(item.display_status==='missed'){
+            html += `<span class="plan-check missed flex-none w-4 h-4 rounded border border-miss/40 bg-miss/10 grid place-items-center"><svg class="w-2.5 h-2.5 text-miss" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-width="2.5" d="M18 6L6 18M6 6l12 12"/></svg></span>`;
+          } else if(item.status==='completed'){
+            html += `<button class="plan-complete-btn flex-none w-4 h-4 rounded border border-good bg-good grid place-items-center" data-id="${item.item_id}"><svg class="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg></button>`;
+          } else {
+            html += `<button class="plan-complete-btn flex-none w-4 h-4 rounded border border-gray-300 hover:border-accent hover:bg-accent/10 grid place-items-center transition-colors" data-id="${item.item_id}"></button>`;
           }
+          html += `<span class="text-[10px]">${icon}</span>`;
+          html += `<span class="text-[10px] truncate flex-1 ${item.status==='completed'?'line-through text-muted':''}">${item.title}${dur}</span>`;
           html += `<button class="plan-del-btn opacity-0 group-hover:opacity-100 text-[9px] text-miss ml-0.5" data-id="${item.item_id}">\u2715</button>`;
           html += `</div>`;
         });

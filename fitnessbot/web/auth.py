@@ -98,7 +98,7 @@ def _send_verification_email(email: str, code: str) -> bool:
     msg["To"] = email
     msg.set_content(
         f"Your verification code is: {code}\n\n"
-        f"Or click: http://fit.140.238.131.77.nip.io/verify-email?code={code}\n\n"
+        f"Or click: {Config.BASE_URL}/verify-email?code={code}\n\n"
         "This code expires in 24 hours."
     )
     try:

@@ -55,6 +55,9 @@ class Config:
     # --- Admin ---
     SUPER_ADMIN_EMAIL: str = os.getenv("SUPER_ADMIN_EMAIL", "alexsam89@gmail.com")
 
+    # --- App URL ---
+    BASE_URL: str = os.getenv("BASE_URL", "http://fit.140.238.131.77.nip.io")
+
     # --- Behavior ---
     TIMEZONE: str = os.getenv("TIMEZONE", "America/Toronto")
     QUIET_HOURS: str = os.getenv("QUIET_HOURS", "22:00-07:00")

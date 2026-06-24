@@ -18,6 +18,7 @@ from telegram.ext import (
 
 from fitnessbot import db, training_plan
 from fitnessbot.bot.conversation import process_message
+from fitnessbot.config import Config
 from fitnessbot.metrics import get_weight_summary
 from fitnessbot.voice import download_voice_file, transcribe_audio
 
@@ -88,7 +89,7 @@ def register_handlers(app: Application, user_id: int) -> None:
             await update.message.reply_text("No meals to undo.")
 
     async def cmd_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("Open your dashboard at: http://fit.140.238.131.77.nip.io")
+        await update.message.reply_text(f"Open your dashboard at: {Config.BASE_URL}")
 
     async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = training_plan.format_plan_telegram(user_id)
@@ -160,13 +161,13 @@ def register_handlers(app: Application, user_id: int) -> None:
     async def cmd_invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
         code = secrets.token_urlsafe(12)
         db.create_invite_link(user_id, code)
-        link = f"http://fit.140.238.131.77.nip.io/register?invite={code}"
+        link = f"{Config.BASE_URL}/register?invite={code}"
         user = db.get_user_by_id(user_id)
         name = user["display_name"] if user else "Someone"
         await update.message.reply_text(
-            f"Here's your invite link:\n\n{link}\n\n"
-            f"Share it with friends — they'll be connected to you when they sign up.\n"
-            f"The link has no expiry by default."
+            f"\U0001F3CB\uFE0F fit.io Invite Link\n\n{link}\n\n"
+            f"Share this with friends to join your fitness network on fit.io.\n"
+            f"They'll be connected to you when they sign up."
         )
 
     async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
