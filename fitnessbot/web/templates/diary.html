@@ -103,9 +103,9 @@
             </button>
           </div>
         </div>
-        {% if meal.items %}
+        {% if meal['items'] %}
         <div class="mt-2 pt-2 border-t border-gray-100 space-y-1">
-          {% for item in meal.items %}
+          {% for item in meal['items'] %}
           <div class="flex justify-between text-xs">
             <span class="text-muted">{{ item.food_name or 'Item' }}{% if item.quantity and item.quantity != 1 %} x{{ item.quantity }}{% endif %}</span>
             <span class="text-faint font-mono">{{ item.calories|int if item.calories else '—' }} cal</span>
