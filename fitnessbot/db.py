@@ -803,6 +803,118 @@ def run_migrations() -> None:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_pb_user_date ON personal_bests(user_id, recorded_at)")
             conn.execute("INSERT INTO schema_version (version) VALUES (14)")
             conn.commit()
+
+        if current < 15:
+            # Social features: handle, avatar, friendships, share settings, nudges
+            for col_name, col_type, col_default in [
+                ("handle", "TEXT", None),
+                ("avatar_url", "TEXT", None),
+            ]:
+                try:
+                    default_clause = f" DEFAULT '{col_default}'" if col_default else ""
+                    conn.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}{default_clause}")
+                except sqlite3.OperationalError:
+                    pass
+
+            conn.execute("""CREATE TABLE IF NOT EXISTS friendships (
+                friendship_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                requester_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                addressee_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                accepted_at TEXT,
+                UNIQUE(requester_id, addressee_id))
+            """)
+
+            conn.execute("""CREATE TABLE IF NOT EXISTS share_settings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER UNIQUE NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                share_goals INTEGER NOT NULL DEFAULT 1,
+                share_progress INTEGER NOT NULL DEFAULT 1,
+                share_diet INTEGER NOT NULL DEFAULT 1,
+                share_workouts INTEGER NOT NULL DEFAULT 1,
+                share_weight INTEGER NOT NULL DEFAULT 0,
+                is_private INTEGER NOT NULL DEFAULT 0)
+            """)
+
+            conn.execute("""CREATE TABLE IF NOT EXISTS nudge_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                key TEXT UNIQUE NOT NULL,
+                text TEXT NOT NULL,
+                emoji TEXT,
+                category TEXT NOT NULL DEFAULT 'cheer')
+            """)
+
+            conn.execute("""CREATE TABLE IF NOT EXISTS nudges (
+                nudge_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sender_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                recipient_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                kind TEXT NOT NULL DEFAULT 'preset',
+                template_key TEXT,
+                body TEXT,
+                emoji TEXT,
+                related_event_id INTEGER,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                read_at TEXT)
+            """)
+
+            conn.execute("""CREATE TABLE IF NOT EXISTS blocks (
+                block_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                blocked_user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                UNIQUE(user_id, blocked_user_id))
+            """)
+
+            conn.execute("""CREATE TABLE IF NOT EXISTS reports (
+                report_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                reporter_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                reported_user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                reason TEXT,
+                nudge_id INTEGER,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))
+            """)
+
+            # Seed nudge templates
+            templates = [
+                # Hype / Cheer
+                ("good_work", "Good work today!", "\ud83d\udcaa", "cheer"),
+                ("beast_mode", "Beast mode activated", "\ud83d\udd25", "cheer"),
+                ("proud", "Proud of you fr", "\ud83d\ude4c", "cheer"),
+                ("unstoppable", "Unstoppable", "\ud83d\ude80", "cheer"),
+                ("keep_going", "Keep going!", "\ud83d\udcaf", "motivation"),
+                ("streak_fire", "Streak on fire", "\ud83d\udd25", "progress"),
+                # Trash talk / Cheeky
+                ("couch_potato", "Get off the couch", "\ud83d\udecb\ufe0f", "trash_talk"),
+                ("skipped_legs", "You skipped leg day didn't you", "\ud83e\uddb5", "trash_talk"),
+                ("gym_miss", "Gym misses you more than your ex", "\ud83d\udc94", "trash_talk"),
+                ("eating_good", "I see you eating good \ud83d\udc40", "\ud83c\udf55", "trash_talk"),
+                ("snack_attack", "Put the snacks down", "\ud83c\udf6a", "trash_talk"),
+                ("cardio_who", "Cardio? Never heard of her", "\ud83c\udfc3", "trash_talk"),
+                ("sleeping_in", "Still sleeping? It's gym o'clock", "\u23f0", "trash_talk"),
+                ("weak_sauce", "That's weak sauce", "\ud83d\ude24", "trash_talk"),
+                ("outpacing", "I'm outpacing you this week", "\ud83d\ude0f", "trash_talk"),
+                ("catching_up", "Better catch up", "\ud83c\udfce\ufe0f", "trash_talk"),
+                # Motivation
+                ("where_gym", "Where's the gym today?", "\ud83c\udfcb\ufe0f", "motivation"),
+                ("protein_check", "Did you hit your protein?", "\ud83e\udd69", "motivation"),
+                ("water_check", "Drink water!", "\ud83d\udca7", "motivation"),
+                ("go_outside", "Touch grass", "\ud83c\udf3f", "motivation"),
+                # Recovery
+                ("rest_day", "Rest day earned", "\ud83d\ude34", "recovery"),
+                ("stretch", "Stretch! Your muscles are begging", "\ud83e\uddd8", "recovery"),
+            ]
+            for key, text, emoji, category in templates:
+                try:
+                    conn.execute(
+                        "INSERT INTO nudge_templates (key, text, emoji, category) VALUES (?, ?, ?, ?)",
+                        (key, text, emoji, category),
+                    )
+                except sqlite3.IntegrityError:
+                    pass
+
+            conn.execute("INSERT INTO schema_version (version) VALUES (15)")
+            conn.commit()
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
         init_db()
@@ -2248,6 +2360,7 @@ def get_weight_goal(user_id: int) -> float | None:
         conn.close()
 
 
+
 # --- Personal Bests ---
 
 def insert_personal_best(user_id: int, exercise_name: str, value: float, unit: str = "", notes: str = "", recorded_at: str | None = None) -> int:
@@ -2319,5 +2432,434 @@ def delete_personal_best(pb_id: int, user_id: int) -> bool:
         )
         conn.commit()
         return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+# --- Social / Friends DAL ---
+
+def update_user_handle(user_id: int, handle: str) -> bool:
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE users SET handle = ?, updated_at = ? WHERE user_id = ?", (handle.lower(), utcnow(), user_id))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
+
+
+def update_user_avatar(user_id: int, avatar_url: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE users SET avatar_url = ?, updated_at = ? WHERE user_id = ?", (avatar_url, utcnow(), user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def search_users(query: str, exclude_user_id: int, limit: int = 10) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT user_id, display_name, handle, avatar_url FROM users
+               WHERE user_id != ? AND (handle LIKE ? OR email LIKE ? OR display_name LIKE ?)
+               LIMIT ?""",
+            (exclude_user_id, f"%{query}%", f"%{query}%", f"%{query}%", limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_user_by_handle(handle: str) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM users WHERE handle = ?", (handle.lower(),)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def send_friend_request(requester_id: int, addressee_id: int) -> str:
+    conn = get_connection()
+    try:
+        # Check if blocked
+        block = conn.execute(
+            "SELECT 1 FROM blocks WHERE (user_id=? AND blocked_user_id=?) OR (user_id=? AND blocked_user_id=?)",
+            (requester_id, addressee_id, addressee_id, requester_id),
+        ).fetchone()
+        if block:
+            return "blocked"
+        # Check existing
+        existing = conn.execute(
+            """SELECT status FROM friendships
+               WHERE (requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?)""",
+            (requester_id, addressee_id, addressee_id, requester_id),
+        ).fetchone()
+        if existing:
+            if existing["status"] == "accepted":
+                return "already_friends"
+            return "already_pending"
+        conn.execute(
+            "INSERT INTO friendships (requester_id, addressee_id, status) VALUES (?, ?, 'pending')",
+            (requester_id, addressee_id),
+        )
+        conn.commit()
+        return "sent"
+    finally:
+        conn.close()
+
+
+def accept_friend_request(friendship_id: int, user_id: int) -> bool:
+    conn = get_connection()
+    try:
+        result = conn.execute(
+            "UPDATE friendships SET status='accepted', accepted_at=? WHERE friendship_id=? AND addressee_id=? AND status='pending'",
+            (utcnow(), friendship_id, user_id),
+        )
+        conn.commit()
+        return result.rowcount > 0
+    finally:
+        conn.close()
+
+
+def decline_friend_request(friendship_id: int, user_id: int) -> bool:
+    conn = get_connection()
+    try:
+        result = conn.execute(
+            "DELETE FROM friendships WHERE friendship_id=? AND addressee_id=? AND status='pending'",
+            (friendship_id, user_id),
+        )
+        conn.commit()
+        return result.rowcount > 0
+    finally:
+        conn.close()
+
+
+def remove_friend(friendship_id: int, user_id: int) -> bool:
+    conn = get_connection()
+    try:
+        result = conn.execute(
+            "DELETE FROM friendships WHERE friendship_id=? AND (requester_id=? OR addressee_id=?) AND status='accepted'",
+            (friendship_id, user_id, user_id),
+        )
+        conn.commit()
+        return result.rowcount > 0
+    finally:
+        conn.close()
+
+
+def get_friends(user_id: int) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT f.friendship_id, u.user_id, u.display_name, u.handle, u.avatar_url
+               FROM friendships f
+               JOIN users u ON u.user_id = CASE WHEN f.requester_id = ? THEN f.addressee_id ELSE f.requester_id END
+               WHERE (f.requester_id = ? OR f.addressee_id = ?) AND f.status = 'accepted'""",
+            (user_id, user_id, user_id),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_pending_requests(user_id: int) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT f.friendship_id, u.user_id, u.display_name, u.handle, u.avatar_url, f.created_at
+               FROM friendships f JOIN users u ON u.user_id = f.requester_id
+               WHERE f.addressee_id = ? AND f.status = 'pending'
+               ORDER BY f.created_at DESC""",
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_sent_requests(user_id: int) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT f.friendship_id, u.user_id, u.display_name, u.handle, u.avatar_url, f.created_at
+               FROM friendships f JOIN users u ON u.user_id = f.addressee_id
+               WHERE f.requester_id = ? AND f.status = 'pending'
+               ORDER BY f.created_at DESC""",
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def block_user(user_id: int, blocked_user_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "DELETE FROM friendships WHERE (requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?)",
+            (user_id, blocked_user_id, blocked_user_id, user_id),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO blocks (user_id, blocked_user_id) VALUES (?, ?)",
+            (user_id, blocked_user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def unblock_user(user_id: int, blocked_user_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM blocks WHERE user_id=? AND blocked_user_id=?", (user_id, blocked_user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_blocked_users(user_id: int) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT b.block_id, u.user_id, u.display_name, u.handle
+               FROM blocks b JOIN users u ON u.user_id = b.blocked_user_id
+               WHERE b.user_id = ?""",
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def is_blocked(user_id: int, other_user_id: int) -> bool:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM blocks WHERE (user_id=? AND blocked_user_id=?) OR (user_id=? AND blocked_user_id=?)",
+            (user_id, other_user_id, other_user_id, user_id),
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
+def are_friends(user_id: int, other_user_id: int) -> bool:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            """SELECT 1 FROM friendships
+               WHERE ((requester_id=? AND addressee_id=?) OR (requester_id=? AND addressee_id=?))
+               AND status='accepted'""",
+            (user_id, other_user_id, other_user_id, user_id),
+        ).fetchone()
+        return row is not None
+    finally:
+        conn.close()
+
+
+# --- Share Settings ---
+
+def get_share_settings(user_id: int) -> dict:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM share_settings WHERE user_id = ?", (user_id,)).fetchone()
+        if row:
+            return dict(row)
+        return {
+            "share_goals": 1, "share_progress": 1, "share_diet": 1,
+            "share_workouts": 1, "share_weight": 0, "is_private": 0,
+        }
+    finally:
+        conn.close()
+
+
+def upsert_share_settings(user_id: int, settings: dict) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            """INSERT INTO share_settings (user_id, share_goals, share_progress, share_diet, share_workouts, share_weight, is_private)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                 share_goals=excluded.share_goals, share_progress=excluded.share_progress,
+                 share_diet=excluded.share_diet, share_workouts=excluded.share_workouts,
+                 share_weight=excluded.share_weight, is_private=excluded.is_private""",
+            (user_id, settings.get("share_goals", 1), settings.get("share_progress", 1),
+             settings.get("share_diet", 1), settings.get("share_workouts", 1),
+             settings.get("share_weight", 0), settings.get("is_private", 0)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# --- Nudges ---
+
+def get_nudge_templates() -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT * FROM nudge_templates ORDER BY category, id").fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def send_nudge(sender_id: int, recipient_id: int, kind: str = "preset",
+               template_key: str | None = None, body: str | None = None,
+               emoji: str | None = None, related_event_id: int | None = None) -> int | None:
+    conn = get_connection()
+    try:
+        if is_blocked(sender_id, recipient_id):
+            return None
+        if not are_friends(sender_id, recipient_id):
+            return None
+        cursor = conn.execute(
+            """INSERT INTO nudges (sender_id, recipient_id, kind, template_key, body, emoji, related_event_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (sender_id, recipient_id, kind, template_key, body, emoji, related_event_id),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def get_nudges_for_user(user_id: int, limit: int = 20) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT n.*, u.display_name as sender_name, u.handle as sender_handle, u.avatar_url as sender_avatar,
+                      t.text as template_text, t.emoji as template_emoji
+               FROM nudges n
+               JOIN users u ON u.user_id = n.sender_id
+               LEFT JOIN nudge_templates t ON t.key = n.template_key
+               WHERE n.recipient_id = ?
+               ORDER BY n.created_at DESC LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def mark_nudges_read(user_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE nudges SET read_at = ? WHERE recipient_id = ? AND read_at IS NULL", (utcnow(), user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_unread_nudge_count(user_id: int) -> int:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT COUNT(*) as c FROM nudges WHERE recipient_id = ? AND read_at IS NULL", (user_id,)).fetchone()
+        return row["c"] if row else 0
+    finally:
+        conn.close()
+
+
+def count_nudges_sent_today(sender_id: int, recipient_id: int) -> int:
+    conn = get_connection()
+    try:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        row = conn.execute(
+            "SELECT COUNT(*) as c FROM nudges WHERE sender_id=? AND recipient_id=? AND created_at >= ?",
+            (sender_id, recipient_id, today),
+        ).fetchone()
+        return row["c"] if row else 0
+    finally:
+        conn.close()
+
+
+# --- Reports ---
+
+def report_user(reporter_id: int, reported_user_id: int, reason: str | None = None, nudge_id: int | None = None) -> int:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "INSERT INTO reports (reporter_id, reported_user_id, reason, nudge_id) VALUES (?, ?, ?, ?)",
+            (reporter_id, reported_user_id, reason, nudge_id),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def get_friend_summary(user_id: int, viewer_id: int) -> dict:
+    """Get a friend's progress summary, filtered by their share settings."""
+    settings = get_share_settings(user_id)
+    if settings.get("is_private"):
+        return {"private": True}
+
+    summary = {"user_id": user_id, "private": False}
+    conn = get_connection()
+    try:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        if settings.get("share_goals"):
+            goal = conn.execute(
+                "SELECT goal_type, title, target_weight FROM goals WHERE user_id=? AND status='active' ORDER BY goal_id DESC LIMIT 1",
+                (user_id,),
+            ).fetchone()
+            summary["goal"] = dict(goal) if goal else None
+
+        if settings.get("share_progress"):
+            # Training plan adherence this week
+            from datetime import timedelta
+            now = datetime.now(timezone.utc)
+            monday = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d")
+            plan_items = conn.execute(
+                "SELECT COUNT(*) as total, SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as done FROM training_plan_items WHERE user_id=? AND date >= ?",
+                (user_id, monday),
+            ).fetchone()
+            summary["plan_adherence"] = {"done": plan_items["done"] or 0, "total": plan_items["total"] or 0} if plan_items else None
+
+        if settings.get("share_diet"):
+            totals = conn.execute(
+                "SELECT total_calories as calories, protein, carbs, fat FROM daily_summary WHERE user_id=? AND date=?",
+                (user_id, today),
+            ).fetchone()
+            if not totals or not totals["calories"]:
+                # Fallback: sum from meals table directly
+                meal_totals = conn.execute(
+                    "SELECT SUM(total_calories) as calories, SUM(total_protein) as protein, SUM(total_carbs) as carbs, SUM(total_fat) as fat FROM meals WHERE user_id=? AND logged_at >= ?",
+                    (user_id, today),
+                ).fetchone()
+                summary["today_macros"] = dict(meal_totals) if meal_totals and meal_totals["calories"] else None
+            else:
+                summary["today_macros"] = dict(totals)
+
+        if settings.get("share_workouts"):
+            from datetime import timedelta
+            now = datetime.now(timezone.utc)
+            monday = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d")
+            workouts = conn.execute(
+                "SELECT COUNT(*) as c FROM exercise WHERE user_id=? AND started_at >= ?",
+                (user_id, monday),
+            ).fetchone()
+            count = workouts["c"] if workouts else 0
+            if count == 0:
+                # Fallback: check daily_workouts (completed ones)
+                dw = conn.execute(
+                    "SELECT COUNT(*) as c FROM daily_workouts WHERE user_id=? AND scheduled_date >= ? AND completed=1",
+                    (user_id, monday),
+                ).fetchone()
+                count = dw["c"] if dw else 0
+            summary["workouts_this_week"] = count
+
+        if settings.get("share_weight"):
+            weight_row = conn.execute(
+                "SELECT raw_weight as weight, date FROM weight_trend WHERE user_id=? ORDER BY date DESC LIMIT 1",
+                (user_id,),
+            ).fetchone()
+            summary["latest_weight"] = dict(weight_row) if weight_row else None
+
+        return summary
     finally:
         conn.close()

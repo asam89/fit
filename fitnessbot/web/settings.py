@@ -112,6 +112,8 @@ async def settings_page(request: Request):
     providers = _build_provider_display(uid, user)
     has_system_key = bool(Config.ANTHROPIC_API_KEY)
     notif_prefs = db.get_notification_preferences(uid)
+    share = db.get_share_settings(uid)
+    blocked_users = db.get_blocked_users(uid)
 
     return templates.TemplateResponse(
         "settings.html",
@@ -122,6 +124,8 @@ async def settings_page(request: Request):
             "providers": providers,
             "has_system_key": has_system_key,
             "notif": notif_prefs,
+            "share": share,
+            "blocked_users": blocked_users,
         },
     )
 
@@ -137,6 +141,7 @@ async def update_profile(
     units_pref: str = Form(""),
     activity_level: str = Form(""),
     dietary_restrictions: str = Form(""),
+    handle: str = Form(""),
 ):
     user = get_current_user(request)
     if not user:
@@ -165,6 +170,11 @@ async def update_profile(
 
     if updates:
         db.update_user(user["user_id"], **updates)
+
+    # Handle update (separate because of uniqueness constraint)
+    handle_val = handle.strip().lower()
+    if handle_val:
+        db.update_user_handle(user["user_id"], handle_val)
 
     return RedirectResponse("/settings?saved=profile", status_code=303)
 
