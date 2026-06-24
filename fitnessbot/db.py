@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 SCHEMA_SQL = """
 -- users
@@ -786,6 +786,22 @@ def run_migrations() -> None:
                 except sqlite3.OperationalError:
                     pass
             conn.execute("INSERT INTO schema_version (version) VALUES (13)")
+            conn.commit()
+
+        if current < 14:
+            conn.execute("""CREATE TABLE IF NOT EXISTS personal_bests (
+                pb_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+                exercise_name TEXT NOT NULL,
+                value REAL NOT NULL,
+                unit TEXT NOT NULL DEFAULT '',
+                recorded_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                notes TEXT DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+            )""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_pb_user_exercise ON personal_bests(user_id, exercise_name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_pb_user_date ON personal_bests(user_id, recorded_at)")
+            conn.execute("INSERT INTO schema_version (version) VALUES (14)")
             conn.commit()
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
@@ -2182,5 +2198,80 @@ def get_weight_goal(user_id: int) -> float | None:
             (user_id,),
         ).fetchone()
         return row["target_weight"] if row else None
+    finally:
+        conn.close()
+
+
+# --- Personal Bests ---
+
+def insert_personal_best(user_id: int, exercise_name: str, value: float, unit: str = "", notes: str = "", recorded_at: str | None = None) -> int:
+    conn = get_connection()
+    try:
+        if recorded_at is None:
+            recorded_at = utcnow()
+        cursor = conn.execute(
+            """INSERT INTO personal_bests (user_id, exercise_name, value, unit, recorded_at, notes)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (user_id, exercise_name.strip().lower(), value, unit.strip(), recorded_at, notes),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def get_personal_bests(user_id: int, limit: int = 50) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT pb_id, exercise_name, value, unit, recorded_at, notes
+               FROM personal_bests WHERE user_id = ?
+               ORDER BY recorded_at DESC LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_personal_bests_by_exercise(user_id: int, exercise_name: str) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT pb_id, exercise_name, value, unit, recorded_at, notes
+               FROM personal_bests WHERE user_id = ? AND exercise_name = ?
+               ORDER BY recorded_at DESC""",
+            (user_id, exercise_name.strip().lower()),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_top_personal_bests(user_id: int) -> list[dict]:
+    """Get the best (max value) for each exercise — used for display."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT exercise_name, MAX(value) as value, unit, MAX(recorded_at) as recorded_at
+               FROM personal_bests WHERE user_id = ?
+               GROUP BY exercise_name
+               ORDER BY recorded_at DESC""",
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def delete_personal_best(pb_id: int, user_id: int) -> bool:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "DELETE FROM personal_bests WHERE pb_id = ? AND user_id = ?",
+            (pb_id, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
     finally:
         conn.close()

@@ -360,6 +360,40 @@
     </div>
   </section>
 
+  <!-- ===== PERSONAL BESTS ===== -->
+  <section id="personal-bests">
+    <div class="card p-5">
+      <div class="flex items-center justify-between cursor-pointer" onclick="togglePBs()">
+        <div class="flex items-center gap-2">
+          <span class="eyebrow">Personal Bests</span>
+          <span id="pbSummary" class="text-xs text-muted truncate max-w-[200px] sm:max-w-[400px]"></span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="event.stopPropagation();document.getElementById('pbAddModal').classList.remove('hidden')" class="text-[10px] text-accent hover:text-accent-press font-medium">+ Add</button>
+          <svg id="pbChevron" class="w-4 h-4 text-faint transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </div>
+      </div>
+      <div id="pbExpanded" class="hidden mt-3">
+        <div id="pbList" class="space-y-2"></div>
+        <p id="pbEmpty" class="text-xs text-faint italic hidden">No personal bests yet. Add your first PR!</p>
+      </div>
+
+      <!-- Add PB Modal -->
+      <div id="pbAddModal" class="hidden mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <input id="pbExercise" type="text" placeholder="Exercise (e.g. bench press)" class="col-span-2 sm:col-span-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-accent">
+          <input id="pbValue" type="text" placeholder="Value (e.g. 225)" class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-accent">
+          <input id="pbUnit" type="text" placeholder="Unit (lbs, min, etc)" class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-accent">
+          <div class="col-span-2 sm:col-span-4 flex gap-2">
+            <input id="pbNotes" type="text" placeholder="Notes (optional)" class="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-accent">
+            <button onclick="savePB()" class="px-4 py-2 bg-accent text-white text-sm font-semibold rounded-lg hover:bg-accent-press transition-colors">Save</button>
+            <button onclick="document.getElementById('pbAddModal').classList.add('hidden')" class="px-3 py-2 text-sm text-faint hover:text-ink transition-colors">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- ===== WEEKLY TRAINING PLAN ===== -->
   <section id="training-plan">
     <div class="card p-5">
@@ -854,6 +888,87 @@ document.querySelectorAll('[data-range]').forEach(btn=>{
       alert('Error saving answer');
     }
   }
+})();
+</script>
+
+<!-- ===== PERSONAL BESTS JS ===== -->
+<script>
+(function(){
+  let pbExpanded = false;
+  let pbData = [];
+
+  window.togglePBs = function() {
+    pbExpanded = !pbExpanded;
+    document.getElementById('pbExpanded').classList.toggle('hidden', !pbExpanded);
+    document.getElementById('pbChevron').style.transform = pbExpanded ? 'rotate(180deg)' : '';
+  };
+
+  window.savePB = async function() {
+    const exercise = document.getElementById('pbExercise').value.trim();
+    const value = document.getElementById('pbValue').value.trim();
+    const unit = document.getElementById('pbUnit').value.trim();
+    const notes = document.getElementById('pbNotes').value.trim();
+    if (!exercise || !value) return;
+    await fetch('/api/personal-bests', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({exercise_name: exercise, value: parseFloat(value), unit, notes})
+    });
+    document.getElementById('pbExercise').value = '';
+    document.getElementById('pbValue').value = '';
+    document.getElementById('pbUnit').value = '';
+    document.getElementById('pbNotes').value = '';
+    document.getElementById('pbAddModal').classList.add('hidden');
+    loadPBs();
+  };
+
+  async function deletePB(id) {
+    await fetch('/api/personal-bests/' + id, {method: 'DELETE'});
+    loadPBs();
+  }
+
+  async function loadPBs() {
+    const res = await fetch('/api/personal-bests');
+    const data = await res.json();
+    pbData = data.personal_bests || [];
+
+    const summary = document.getElementById('pbSummary');
+    const list = document.getElementById('pbList');
+    const empty = document.getElementById('pbEmpty');
+
+    if (pbData.length === 0) {
+      summary.textContent = 'No PRs logged yet';
+      empty.classList.remove('hidden');
+      list.innerHTML = '';
+      return;
+    }
+
+    empty.classList.add('hidden');
+    const top3 = pbData.slice(0, 3).map(p => {
+      const name = p.exercise_name.split(' ').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+      return `${name} ${p.value}${p.unit ? ' ' + p.unit : ''}`;
+    });
+    summary.textContent = top3.join(' · ');
+
+    list.innerHTML = pbData.map(p => {
+      const name = p.exercise_name.split(' ').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+      const date = p.recorded_at ? new Date(p.recorded_at).toLocaleDateString() : '';
+      return `<div class="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg group">
+        <div class="flex items-center gap-3">
+          <span class="text-sm font-medium text-ink">${name}</span>
+          <span class="text-sm font-bold text-accent">${p.value}${p.unit ? ' ' + p.unit : ''}</span>
+          ${p.notes ? `<span class="text-xs text-faint">${p.notes}</span>` : ''}
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-[10px] text-faint font-mono">${date}</span>
+          <button onclick="deletePBItem(${p.pb_id || 0})" class="opacity-0 group-hover:opacity-100 text-xs text-miss hover:text-red-600 transition-opacity">\u2715</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  window.deletePBItem = deletePB;
+  loadPBs();
 })();
 </script>
 

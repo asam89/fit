@@ -24,12 +24,29 @@ _METRIC_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Personal best / PR patterns: "PR bench 225 lbs", "new PB 5K 24:30", "personal best deadlift 405"
+_PB_PATTERN = re.compile(
+    r"^(?:new\s+)?(?:PR|PB|personal\s+(?:best|record))\s+(.+?)\s+([\d]+(?:[:.]\d+)?)\s*(.*)$",
+    re.IGNORECASE,
+)
+
 
 def classify_message(text: str, has_pending_question: bool = False, user_id: int | None = None) -> dict:
     text_stripped = text.strip()
 
     if has_pending_question and len(text_stripped.split()) <= 5:
         return {"intent": "data_answer", "extracted": {"value": text_stripped}}
+
+    # Personal best fast path
+    pb_match = _PB_PATTERN.match(text_stripped)
+    if pb_match:
+        exercise = pb_match.group(1).strip()
+        value = pb_match.group(2).strip()
+        unit = pb_match.group(3).strip()
+        return {
+            "intent": "personal_best",
+            "extracted": {"exercise_name": exercise, "value": value, "unit": unit},
+        }
 
     if _METRIC_PATTERN.match(text_stripped):
         parts = text_stripped.split(maxsplit=1)

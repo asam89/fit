@@ -114,6 +114,13 @@ def _fast_path_intents(text: str, pending: dict | None) -> list[dict] | None:
     )):
         return [{"type": "query", "question": stripped, "confidence": 0.95}]
 
+    # Personal best fast path
+    from fitnessbot.router import _PB_PATTERN
+    pb_m = _PB_PATTERN.match(stripped)
+    if pb_m:
+        return [{"type": "personal_best", "exercise_name": pb_m.group(1).strip(),
+                 "value": pb_m.group(2).strip(), "unit": pb_m.group(3).strip(), "confidence": 0.95}]
+
     # Event goal fast path
     if is_event_goal_message(stripped):
         return [{"type": "event_goal", "title": stripped, "date_text": stripped, "description": stripped, "confidence": 0.9}]
@@ -185,6 +192,8 @@ def _act_on_intents(intents: list[dict], user_id: int, raw_text: str) -> list[di
                 r = _act_plan_set(intent, user_id)
             elif itype == "plan_complete":
                 r = _act_plan_complete(intent, user_id)
+            elif itype == "personal_best":
+                r = _act_personal_best(intent, user_id)
             elif itype == "event_goal":
                 r = _act_event_goal(intent, user_id)
             elif itype == "readiness_check":
@@ -339,6 +348,34 @@ def _act_plan_complete(intent: dict, user_id: int) -> dict:
     }
 
 
+def _act_personal_best(intent: dict, user_id: int) -> dict:
+    """Log a new personal best / PR."""
+    exercise = intent.get("exercise_name", "").strip()
+    value_str = str(intent.get("value", ""))
+    unit = intent.get("unit", "")
+    if not exercise or not value_str:
+        return {"action": "pb_failed", "note": "Missing exercise or value"}
+    try:
+        value = float(value_str.replace(":", "."))  # handles time-like "24:30" → 24.30
+    except (ValueError, TypeError):
+        return {"action": "pb_failed", "note": f"Invalid value: {value_str}"}
+
+    # Check if this is actually a new PR (beats previous best)
+    prev = db.get_personal_bests_by_exercise(user_id, exercise)
+    is_new_record = not prev or value > max(p["value"] for p in prev)
+
+    pb_id = db.insert_personal_best(user_id, exercise, value, unit)
+    return {
+        "action": "pb_logged",
+        "exercise_name": exercise,
+        "value": value,
+        "unit": unit,
+        "pb_id": pb_id,
+        "is_new_record": is_new_record,
+        "previous_best": max(p["value"] for p in prev) if prev else None,
+    }
+
+
 def _act_event_goal(intent: dict, user_id: int) -> dict:
     """Create an event goal and generate a prep plan."""
     title_raw = intent.get("title", "")
@@ -437,6 +474,9 @@ def _act_query(user_id: int, question: str = "") -> dict:
     plan_items = training_plan.get_plan_items(user_id, ws)
     adherence = training_plan.compute_adherence(plan_items) if plan_items else None
 
+    # Personal bests context for exercise-related queries
+    personal_bests = db.get_top_personal_bests(user_id)
+
     return {
         "action": "query",
         "question": question,
@@ -451,6 +491,7 @@ def _act_query(user_id: int, question: str = "") -> dict:
         "plan_items": plan_items,
         "adherence": adherence,
         "lookback_days": lookback,
+        "personal_bests": personal_bests,
     }
 
 
@@ -630,6 +671,17 @@ def _build_query_context(act_result: dict) -> str:
     else:
         lines.append(f"\nSLEEP: Not tracked in {period}")
 
+    # Personal bests
+    personal_bests = act_result.get("personal_bests", [])
+    if personal_bests:
+        lines.append(f"\nPERSONAL BESTS:")
+        for pb in personal_bests[:10]:
+            ex = pb.get("exercise_name", "").title()
+            val = pb.get("value", "")
+            u = pb.get("unit", "")
+            date = pb.get("recorded_at", "")[:10] if pb.get("recorded_at") else ""
+            lines.append(f"  {ex}: {val}{' ' + u if u else ''} ({date})")
+
     return "\n".join(lines)
 
 
@@ -748,6 +800,18 @@ def _deterministic_confirmation(act_results: list[dict], user_id: int) -> str:
             parts.append(f"Added {r['added']} activities to this week's plan.")
         elif action == "plan_completed":
             parts.append(f"\u2713 {r['title']} marked done!")
+        elif action == "pb_logged":
+            ex = r.get("exercise_name", "").title()
+            val = r.get("value", "")
+            u = r.get("unit", "")
+            if r.get("is_new_record"):
+                prev = r.get("previous_best")
+                prev_text = f" (previous: {prev}{' ' + u if u else ''})" if prev else ""
+                parts.append(f"\U0001F3C6 New PR! {ex}: {val}{' ' + u if u else ''}{prev_text}")
+            else:
+                parts.append(f"\u2705 Logged {ex}: {val}{' ' + u if u else ''}")
+        elif action == "pb_failed":
+            parts.append(f"Couldn't log PR: {r.get('note', 'try again')}")
         elif action == "workout_logged_no_plan":
             parts.append(f"Logged {r['activity']}" + (f" ({r['duration_min']}min)" if r.get('duration_min') else "") + ". No matching plan item — want me to add it?")
         elif action == "event_goal_created":
