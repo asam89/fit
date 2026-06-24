@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Food Diary{% endblock %}
+{% block head %}
+<style>
+  .card{background:#fff;border:1px solid #E6E8EE;border-radius:14px;box-shadow:0 1px 2px rgba(20,22,29,.03),0 8px 24px -18px rgba(20,22,29,.18)}
+  .eyebrow{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#9aa1b0}
+  .date-chip{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid #E6E8EE;background:#fff;color:#646B7A;transition:all .15s;white-space:nowrap}
+  .date-chip:hover{border-color:#d0d4de}
+  .date-chip.active{background:#2D52F5;color:#fff;border-color:#2D52F5}
+  .meal-card{background:#FAFBFC;border:1px solid #E6E8EE;border-radius:10px;padding:14px 16px}
+</style>
+{% endblock %}
+{% block content %}
+<div class="space-y-5">
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <a href="/dashboard" class="text-faint hover:text-ink transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+      </a>
+      <h1 class="font-display text-xl font-bold">Food Diary</h1>
+    </div>
+    <div class="flex items-center gap-2">
+      <input type="date" id="datePicker" value="{{ current_date }}" class="text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:border-accent">
+    </div>
+  </div>
+
+  <!-- Date scroll chips -->
+  <div class="overflow-x-auto -mx-5 px-5">
+    <div id="dateChips" class="flex gap-2 pb-2">
+      {% for d in meal_dates[:14] %}
+      <button class="date-chip {% if d.date == current_date %}active{% endif %}" data-date="{{ d.date }}">
+        <span class="font-mono text-[10px]">{{ d.date[5:] }}</span>
+        <span class="text-[10px] opacity-70">{{ d.count }} meal{{ 's' if d.count != 1 else '' }}</span>
+      </button>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Day totals -->
+  <div class="card p-4">
+    <div class="flex items-center justify-between mb-2">
+      <span class="eyebrow" id="dayLabel">{{ current_date }}</span>
+      <span class="text-xs text-muted" id="mealCountLabel">{{ meals|length }} meal{{ 's' if meals|length != 1 else '' }}</span>
+    </div>
+    <div class="grid grid-cols-4 gap-3 text-center">
+      <div>
+        <div class="text-lg font-bold font-display" id="dTotalCal">{{ meals|sum(attribute='total_calories')|int }}</div>
+        <div class="text-[10px] text-faint">cal</div>
+      </div>
+      <div>
+        <div class="text-lg font-bold font-display" id="dTotalProtein">{{ meals|sum(attribute='total_protein')|int }}</div>
+        <div class="text-[10px] text-faint">protein</div>
+      </div>
+      <div>
+        <div class="text-lg font-bold font-display" id="dTotalCarbs">{{ meals|sum(attribute='total_carbs')|int }}</div>
+        <div class="text-[10px] text-faint">carbs</div>
+      </div>
+      <div>
+        <div class="text-lg font-bold font-display" id="dTotalFat">{{ meals|sum(attribute='total_fat')|int }}</div>
+        <div class="text-[10px] text-faint">fat</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Meals list -->
+  <div id="mealsList" class="space-y-3">
+    {% if meals %}
+      {% for meal in meals %}
+      <div class="meal-card">
+        <div class="flex items-start justify-between mb-2">
+          <div>
+            <p class="text-sm font-medium text-ink">{{ meal.raw_text[:80] }}{% if meal.raw_text|length > 80 %}...{% endif %}</p>
+            <p class="text-[11px] text-faint mt-0.5">{{ meal.meal_type or 'meal' }} · {{ meal.source }} · {{ meal.logged_at[11:16] if meal.logged_at else '' }}</p>
+          </div>
+          <span class="text-sm font-bold font-mono text-accent flex-shrink-0 ml-3">{{ meal.total_calories|int }} cal</span>
+        </div>
+        {% if meal.items %}
+        <div class="mt-2 pt-2 border-t border-gray-100 space-y-1">
+          {% for item in meal.items %}
+          <div class="flex justify-between text-xs">
+            <span class="text-muted">{{ item.food_name or item.get('description', 'Item') }}{% if item.quantity and item.quantity != 1 %} x{{ item.quantity }}{% endif %}</span>
+            <span class="text-faint font-mono">{{ item.calories|int if item.calories else '—' }} cal</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+        <div class="flex gap-4 mt-2 text-[11px] text-faint">
+          <span>P: {{ meal.total_protein|int if meal.total_protein else 0 }}g</span>
+          <span>C: {{ meal.total_carbs|int if meal.total_carbs else 0 }}g</span>
+          <span>F: {{ meal.total_fat|int if meal.total_fat else 0 }}g</span>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="text-center py-12 text-muted text-sm">
+        No meals logged for this date.
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function(){
+  const datePicker = document.getElementById('datePicker');
+  const chips = document.querySelectorAll('.date-chip');
+
+  function navigateToDate(date) {
+    window.location.href = '/diary?date=' + date;
+  }
+
+  datePicker.onchange = () => navigateToDate(datePicker.value);
+  chips.forEach(chip => {
+    chip.onclick = () => navigateToDate(chip.dataset.date);
+  });
+})();
+</script>
+{% endblock %}
