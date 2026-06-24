@@ -7,7 +7,17 @@
   .date-chip{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid #E6E8EE;background:#fff;color:#646B7A;transition:all .15s;white-space:nowrap}
   .date-chip:hover{border-color:#d0d4de}
   .date-chip.active{background:#2D52F5;color:#fff;border-color:#2D52F5}
-  .meal-card{background:#FAFBFC;border:1px solid #E6E8EE;border-radius:10px;padding:14px 16px}
+  .meal-card{background:#FAFBFC;border:1px solid #E6E8EE;border-radius:10px;padding:14px 16px;position:relative}
+  .meal-type-badge{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid #E6E8EE;background:#fff;color:#646B7A;transition:all .15s}
+  .meal-type-badge:hover{border-color:#2D52F5;color:#2D52F5}
+  .meal-type-menu{position:absolute;top:100%;left:0;background:#fff;border:1px solid #E6E8EE;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:10;padding:4px;display:none;min-width:140px}
+  .meal-type-menu.open{display:block}
+  .meal-type-option{display:block;width:100%;text-align:left;padding:6px 10px;border:none;background:none;font-size:12px;cursor:pointer;border-radius:4px;color:#374151}
+  .meal-type-option:hover{background:#F3F4F6}
+  .meal-type-option.active{background:#2D52F5;color:#fff}
+  .meal-delete-btn{opacity:0;transition:opacity .15s;cursor:pointer;color:#EF4444;border:none;background:none;padding:4px;font-size:14px}
+  .meal-card:hover .meal-delete-btn{opacity:1}
+  @media(max-width:640px){.meal-delete-btn{opacity:1}}
 </style>
 {% endblock %}
 {% block content %}
@@ -67,19 +77,37 @@
   <div id="mealsList" class="space-y-3">
     {% if meals %}
       {% for meal in meals %}
-      <div class="meal-card">
+      <div class="meal-card" data-meal-id="{{ meal.meal_id }}">
         <div class="flex items-start justify-between mb-2">
           <div>
             <p class="text-sm font-medium text-ink">{{ meal.raw_text[:80] }}{% if meal.raw_text|length > 80 %}...{% endif %}</p>
-            <p class="text-[11px] text-faint mt-0.5">{{ meal.meal_type or 'meal' }} · {{ meal.source }} · {{ meal.logged_at[11:16] if meal.logged_at else '' }}</p>
+            <div class="flex items-center gap-2 mt-1">
+              <div class="relative">
+                <button class="meal-type-badge" onclick="toggleTypeMenu(this)" data-meal-id="{{ meal.meal_id }}">
+                  {{ (meal.meal_type or 'meal')|title }}
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </button>
+                <div class="meal-type-menu">
+                  {% for mt in ['breakfast', 'lunch', 'snack', 'dinner', 'midnight snack'] %}
+                  <button class="meal-type-option {% if meal.meal_type == mt %}active{% endif %}" onclick="changeMealType({{ meal.meal_id }}, '{{ mt }}', this)">{{ mt|title }}</button>
+                  {% endfor %}
+                </div>
+              </div>
+              <span class="text-[11px] text-faint">{{ meal.source }} · {{ meal.logged_at[11:16] if meal.logged_at else '' }}</span>
+            </div>
           </div>
-          <span class="text-sm font-bold font-mono text-accent flex-shrink-0 ml-3">{{ meal.total_calories|int }} cal</span>
+          <div class="flex items-center gap-2 flex-shrink-0 ml-3">
+            <span class="text-sm font-bold font-mono text-accent">{{ meal.total_calories|int }} cal</span>
+            <button class="meal-delete-btn" onclick="deleteMeal({{ meal.meal_id }}, this)" title="Delete meal">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            </button>
+          </div>
         </div>
         {% if meal.items %}
         <div class="mt-2 pt-2 border-t border-gray-100 space-y-1">
           {% for item in meal.items %}
           <div class="flex justify-between text-xs">
-            <span class="text-muted">{{ item.food_name or item.get('description', 'Item') }}{% if item.quantity and item.quantity != 1 %} x{{ item.quantity }}{% endif %}</span>
+            <span class="text-muted">{{ item.food_name or 'Item' }}{% if item.quantity and item.quantity != 1 %} x{{ item.quantity }}{% endif %}</span>
             <span class="text-faint font-mono">{{ item.calories|int if item.calories else '—' }} cal</span>
           </div>
           {% endfor %}
@@ -113,6 +141,50 @@
   chips.forEach(chip => {
     chip.onclick = () => navigateToDate(chip.dataset.date);
   });
+
+  document.addEventListener('click', function(e) {
+    document.querySelectorAll('.meal-type-menu.open').forEach(m => {
+      if (!m.parentElement.contains(e.target)) m.classList.remove('open');
+    });
+  });
 })();
+
+function toggleTypeMenu(btn) {
+  const menu = btn.nextElementSibling;
+  document.querySelectorAll('.meal-type-menu.open').forEach(m => { if (m !== menu) m.classList.remove('open'); });
+  menu.classList.toggle('open');
+}
+
+async function changeMealType(mealId, newType, btn) {
+  const menu = btn.closest('.meal-type-menu');
+  menu.classList.remove('open');
+  try {
+    const res = await fetch('/api/meals/' + mealId + '/type', {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({meal_type: newType})
+    });
+    if (res.ok) {
+      const badge = menu.previousElementSibling;
+      badge.childNodes[0].textContent = newType.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') + ' ';
+      menu.querySelectorAll('.meal-type-option').forEach(o => o.classList.remove('active'));
+      btn.classList.add('active');
+    }
+  } catch(e) { console.error(e); }
+}
+
+async function deleteMeal(mealId, btn) {
+  if (!confirm('Delete this meal?')) return;
+  try {
+    const res = await fetch('/api/meals/' + mealId + '/delete', {method: 'POST'});
+    if (res.ok) {
+      const card = btn.closest('.meal-card');
+      card.style.opacity = '0';
+      card.style.transform = 'translateX(-20px)';
+      card.style.transition = 'all .3s';
+      setTimeout(() => card.remove(), 300);
+    }
+  } catch(e) { console.error(e); }
+}
 </script>
 {% endblock %}

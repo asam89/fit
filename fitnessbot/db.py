@@ -1243,6 +1243,37 @@ def delete_last_meal(user_id: int) -> dict | None:
         conn.close()
 
 
+def delete_meal_by_id(meal_id: int, user_id: int) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT meal_id, raw_text, meal_type, total_calories FROM meals WHERE meal_id = ? AND user_id = ?",
+            (meal_id, user_id),
+        ).fetchone()
+        if row:
+            meal = dict(row)
+            conn.execute("DELETE FROM meal_items WHERE meal_id = ?", (meal_id,))
+            conn.execute("DELETE FROM meals WHERE meal_id = ?", (meal_id,))
+            conn.commit()
+            return meal
+        return None
+    finally:
+        conn.close()
+
+
+def update_meal_type(meal_id: int, user_id: int, meal_type: str) -> bool:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "UPDATE meals SET meal_type = ? WHERE meal_id = ? AND user_id = ?",
+            (meal_type, meal_id, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
 def insert_body_composition(
     user_id: int,
     weight: float,
