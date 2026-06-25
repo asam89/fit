@@ -58,7 +58,9 @@ Rules:
 - Voice: plain, specific, honest, lightly motivating. Never robotic stat-dumps, never alarmist
 - No medical claims. On distress signals, respond with care
 - Keep it tight — this costs the user tokens on their own key
-- Numbers in the context block are ground truth — NEVER hallucinate different numbers"""
+- Numbers in the context block are ground truth — NEVER hallucinate different numbers
+- TARGETS come from the user's stored profile — they are the single source of truth. Never treat a number from the user's message as "your goal". If the user mentions a number in their question, compare it against the profile target but do not adopt it as the target.
+- When comparing actuals to targets: say "under target" if <95%, "met target" if within 5%, "exceeded target" if >105%. Never say "close to" or "very close to" when the target is met or exceeded."""
 
 # --- fast-path patterns ---
 
@@ -474,6 +476,10 @@ def _act_query(user_id: int, question: str = "") -> dict:
     workout_hist = db.get_workout_history(user_id, lookback)
     weight_hist = db.get_weight_history(user_id, limit=lookback)
 
+    # Exclude today (in-progress) from completed-day aggregates
+    completed_macro_hist = [d for d in macro_hist if d.get("date") != today]
+    today_macro = next((d for d in macro_hist if d.get("date") == today), None)
+
     ws = training_plan._monday_of_week(user_now(user_id).date())
     plan_items = training_plan.get_plan_items(user_id, ws)
     adherence = training_plan.compute_adherence(plan_items) if plan_items else None
@@ -488,7 +494,8 @@ def _act_query(user_id: int, question: str = "") -> dict:
         "targets": targets,
         "weight": weight,
         "meal_count": meal_count,
-        "macro_history": macro_hist,
+        "macro_history": completed_macro_hist,
+        "today_macro": today_macro,
         "sleep_history": sleep_hist,
         "workout_history": workout_hist,
         "weight_history": weight_hist,
@@ -595,7 +602,10 @@ Rules:
 - For diet questions: cover calories, protein, consistency
 - For fitness questions: cover workouts, training plan adherence, activity
 - For general "how am I doing": cover both diet + fitness
-- Numbers from the data context are ground truth — NEVER hallucinate different numbers"""
+- Numbers from the data context are ground truth — NEVER hallucinate different numbers
+- TARGETS labeled "PROFILE TARGETS" are from the user's stored settings — the single source of truth. Never promote a number the user mentions in their question to "your goal".
+- Averages are computed from COMPLETED days only; today is shown separately as in progress
+- Use exact status labels: "under target" (<95%), "met target" (within 5%), "exceeded target" (>105%). Never say "close to" or "very close to" when a target was met or exceeded."""
 
 
 def _build_query_context(act_result: dict) -> str:
@@ -606,29 +616,35 @@ def _build_query_context(act_result: dict) -> str:
     period = f"last {lookback} days"
 
     lines.append(f"PERIOD: {period}")
-    lines.append(f"TARGETS: {targets.get('calories', 0)} cal, {targets.get('protein', 0)}g P, {targets.get('carbs', 0)}g C, {targets.get('fat', 0)}g F")
+    lines.append(f"PROFILE TARGETS (from stored settings, single source of truth): {targets.get('calories', 0)} cal, {targets.get('protein', 0)}g P, {targets.get('carbs', 0)}g C, {targets.get('fat', 0)}g F")
 
     # Today
     totals = act_result.get("totals", {})
-    lines.append(f"\nTODAY: {totals.get('calories', 0):.0f} cal, {totals.get('protein', 0):.0f}g P, {totals.get('carbs', 0):.0f}g C, {totals.get('fat', 0):.0f}g F | {act_result.get('meal_count', 0)} meals")
+    lines.append(f"\nTODAY (in progress — not included in averages below): {totals.get('calories', 0):.0f} cal, {totals.get('protein', 0):.0f}g P, {totals.get('carbs', 0):.0f}g C, {totals.get('fat', 0):.0f}g F | {act_result.get('meal_count', 0)} meals")
 
-    # Macro history
+    # Macro history (today already excluded by _act_query)
     macro_hist = act_result.get("macro_history", [])
+    cal_target = targets.get("calories", 0)
+    pro_target = targets.get("protein", 0)
     if macro_hist:
-        lines.append(f"\nDIET HISTORY ({len(macro_hist)} days logged):")
+        lines.append(f"\nCOMPLETED-DAY DIET HISTORY ({len(macro_hist)} days, today excluded):")
         total_cal = sum(d.get("calories", 0) or 0 for d in macro_hist)
         total_pro = sum(d.get("protein", 0) or 0 for d in macro_hist)
         avg_cal = total_cal / len(macro_hist) if macro_hist else 0
         avg_pro = total_pro / len(macro_hist) if macro_hist else 0
         lines.append(f"  Avg: {avg_cal:.0f} cal/day, {avg_pro:.0f}g protein/day")
-        on_target_cal = sum(1 for d in macro_hist if abs((d.get("calories", 0) or 0) - targets.get("calories", 0)) < targets.get("calories", 2000) * 0.1)
-        on_target_pro = sum(1 for d in macro_hist if (d.get("protein", 0) or 0) >= targets.get("protein", 0) * 0.9)
-        lines.append(f"  Calories on target: {on_target_cal}/{len(macro_hist)} days")
-        lines.append(f"  Protein hit: {on_target_pro}/{len(macro_hist)} days")
         for d in macro_hist[-7:]:
-            lines.append(f"  {d['date']}: {(d.get('calories') or 0):.0f} cal, {(d.get('protein') or 0):.0f}g P, {d.get('meal_count', 0)} meals")
+            d_cal = d.get("calories", 0) or 0
+            d_pro = d.get("protein", 0) or 0
+            cal_st = _target_status(d_cal, cal_target)
+            pro_st = _target_status(d_pro, pro_target)
+            lines.append(f"  {d['date']}: {d_cal:.0f} cal ({cal_st}), {d_pro:.0f}g P ({pro_st}), {d.get('meal_count', 0)} meals")
+        met_cal = sum(1 for d in macro_hist if (d.get("calories", 0) or 0) >= cal_target * 0.95)
+        met_pro = sum(1 for d in macro_hist if (d.get("protein", 0) or 0) >= pro_target * 0.9)
+        lines.append(f"  Met/exceeded calorie target: {met_cal}/{len(macro_hist)} days")
+        lines.append(f"  Met protein target: {met_pro}/{len(macro_hist)} days")
     else:
-        lines.append(f"\nDIET HISTORY: No meals logged in the {period}")
+        lines.append(f"\nCOMPLETED-DAY DIET HISTORY: No completed days with meals in the {period}")
 
     # Weight
     weight = act_result.get("weight", {})
@@ -689,8 +705,22 @@ def _build_query_context(act_result: dict) -> str:
     return "\n".join(lines)
 
 
+def _target_status(actual: float, target: float) -> str:
+    """Classify as under / met / exceeded."""
+    if target == 0:
+        return "no target set"
+    pct = abs(actual - target) / target
+    if pct < 0.05:
+        return "met target"
+    return "exceeded target" if actual > target else "under target"
+
+
 def _deterministic_query_response(act_result: dict) -> str:
-    """Build a deterministic query response without LLM."""
+    """Build a deterministic query response without LLM.
+
+    macro_history already has today excluded by _act_query so averages
+    only cover completed days.
+    """
     lines = []
     targets = act_result.get("targets", {})
     lookback = act_result.get("lookback_days", 7)
@@ -702,10 +732,25 @@ def _deterministic_query_response(act_result: dict) -> str:
         total_pro = sum(d.get("protein", 0) or 0 for d in macro_hist)
         avg_cal = total_cal / len(macro_hist)
         avg_pro = total_pro / len(macro_hist)
-        on_target_pro = sum(1 for d in macro_hist if (d.get("protein", 0) or 0) >= targets.get("protein", 0) * 0.9)
-        lines.append(f"Diet ({period_label}): avg {avg_cal:.0f} cal/day (target {targets.get('calories', 0)}), {avg_pro:.0f}g protein/day. Hit protein {on_target_pro}/{len(macro_hist)} days.")
+        cal_target = targets.get("calories", 0)
+        pro_target = targets.get("protein", 0)
+        on_target_cal = sum(1 for d in macro_hist if (d.get("calories", 0) or 0) >= cal_target * 0.95)
+        on_target_pro = sum(1 for d in macro_hist if (d.get("protein", 0) or 0) >= pro_target * 0.9)
+        exceeded_cal = sum(1 for d in macro_hist if (d.get("calories", 0) or 0) > cal_target * 1.05)
+        cal_status = _target_status(avg_cal, cal_target)
+        lines.append(
+            f"Diet ({period_label}, {len(macro_hist)} completed days): "
+            f"avg {avg_cal:.0f} cal/day ({cal_status} vs profile target {cal_target}), "
+            f"{avg_pro:.0f}g protein/day. "
+            f"Met/exceeded calorie target {on_target_cal}/{len(macro_hist)} days. "
+            f"Hit protein {on_target_pro}/{len(macro_hist)} days."
+        )
     else:
-        lines.append(f"Diet: No meals logged {period_label}.")
+        lines.append(f"Diet: No completed days with meals logged {period_label}.")
+
+    today_macro = act_result.get("today_macro")
+    if today_macro:
+        lines.append(f"Today (in progress): {today_macro.get('calories', 0):.0f} cal, {today_macro.get('protein', 0):.0f}g protein so far.")
 
     weight = act_result.get("weight", {})
     if weight.get("has_data"):
@@ -716,7 +761,7 @@ def _deterministic_query_response(act_result: dict) -> str:
         lines.append(w_line)
 
     workout_hist = act_result.get("workout_history", [])
-    lines.append(f"Workouts: {len(workout_hist)} sessions {period_label}.")
+    lines.append(f"Workouts: {len(workout_hist)} session{'s' if len(workout_hist) != 1 else ''} {period_label}.")
 
     adherence = act_result.get("adherence")
     if adherence:
@@ -744,7 +789,7 @@ def _build_context_digest(user_id: int, act_results: list[dict]) -> str:
     remaining_pro = targets["protein"] - totals["protein"]
 
     lines = [
-        f"TARGETS: {targets['calories']} cal, {targets['protein']}g P, {targets['carbs']}g C, {targets['fat']}g F",
+        f"PROFILE TARGETS (stored settings, single source of truth): {targets['calories']} cal, {targets['protein']}g P, {targets['carbs']}g C, {targets['fat']}g F",
         f"TODAY SO FAR: {totals['calories']:.0f} cal, {totals['protein']:.0f}g P, {totals['carbs']:.0f}g C, {totals['fat']:.0f}g F | {meal_count} meals",
         f"REMAINING: {remaining_cal:.0f} cal, {remaining_pro:.0f}g protein",
     ]
