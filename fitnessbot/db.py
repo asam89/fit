@@ -1807,16 +1807,16 @@ def get_calorie_history(user_id: int, days: int = 30) -> list[dict]:
         conn.close()
 
 
-def get_logging_heatmap(user_id: int) -> list[dict]:
+def get_logging_heatmap(user_id: int, days: int = 30) -> list[dict]:
     conn = get_connection()
     try:
         rows = conn.execute(
             """SELECT DATE(logged_at) as date, COUNT(*) as count
                FROM meals WHERE user_id = ?
-               AND DATE(logged_at) >= date('now', '-365 days')
+               AND DATE(logged_at) >= date('now', ? || ' days')
                GROUP BY DATE(logged_at)
                ORDER BY date ASC""",
-            (user_id,),
+            (user_id, str(-days)),
         ).fetchall()
         return [dict(r) for r in rows]
     finally:

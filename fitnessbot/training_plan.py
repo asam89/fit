@@ -25,8 +25,9 @@ def _monday_of_week(d: date) -> str:
     return monday.isoformat()
 
 
-def _today() -> date:
-    return datetime.now(timezone.utc).date()
+def _today(user_id: int | None = None) -> date:
+    from fitnessbot.tz import user_now
+    return user_now(user_id).date()
 
 
 def get_or_create_plan(user_id: int, week_start: str) -> dict:
@@ -59,7 +60,7 @@ def get_plan_items(user_id: int, week_start: str) -> list[dict]:
             (user_id, week_start),
         ).fetchall()
         items = [dict(r) for r in rows]
-        today = _today().isoformat()
+        today = _today(user_id).isoformat()
         for item in items:
             if item["status"] == "planned" and item["date"] < today:
                 item["display_status"] = "missed"
@@ -78,7 +79,7 @@ def get_items_for_date(user_id: int, date_str: str) -> list[dict]:
             (user_id, date_str),
         ).fetchall()
         items = [dict(r) for r in rows]
-        today = _today().isoformat()
+        today = _today(user_id).isoformat()
         for item in items:
             if item["status"] == "planned" and item["date"] < today:
                 item["display_status"] = "missed"
@@ -271,7 +272,7 @@ def copy_last_week(user_id: int, target_week_start: str) -> int:
 
 
 def get_current_week_start(user_id: int) -> str:
-    return _monday_of_week(_today())
+    return _monday_of_week(_today(user_id))
 
 
 def format_plan_telegram(user_id: int, week_start: str | None = None) -> str:
@@ -323,7 +324,7 @@ def format_plan_telegram(user_id: int, week_start: str | None = None) -> str:
 
 def format_today_plan(user_id: int) -> str | None:
     """Format today's planned activities for briefings."""
-    today_str = _today().isoformat()
+    today_str = _today(user_id).isoformat()
     items = get_items_for_date(user_id, today_str)
     if not items:
         return None
@@ -389,7 +390,7 @@ def set_plan_from_text(user_id: int, activities: list[dict]) -> dict:
 
 def complete_by_title(user_id: int, title_hint: str, actual_duration: int | None = None) -> dict | None:
     """Complete a planned item matching the title hint for today."""
-    today_str = _today().isoformat()
+    today_str = _today(user_id).isoformat()
     items = get_items_for_date(user_id, today_str)
 
     hint_lower = title_hint.lower()
