@@ -992,7 +992,7 @@ def run_migrations() -> None:
             conn.commit()
 
         # --- Migration 18: add muscle_mass columns to body_composition ---
-        if current_version < 18:
+        if current < 18:
             for col_name, col_type in [
                 ("muscle_mass", "REAL"),
                 ("muscle_mass_unit", "TEXT NOT NULL DEFAULT 'lbs'"),
