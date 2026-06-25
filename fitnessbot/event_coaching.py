@@ -328,8 +328,9 @@ def build_readiness_assessment(user_id: int, event_goal: dict) -> str:
     event_date = datetime.strptime(event_goal["event_date"], "%Y-%m-%d")
     days_remaining = (event_date.date() - now.date()).days
 
+    from fitnessbot.tz import utc_offset_hours as _utc_off
     workout_hist = db.get_workout_history(user_id, 30)
-    macro_hist = db.get_macro_history(user_id, 14)
+    macro_hist = db.get_macro_history(user_id, 14, utc_offset_hours=_utc_off(user_id))
     sleep_hist = db.get_sleep_history(user_id, 14)
 
     prep_plan = json.loads(event_goal["prep_plan_json"]) if event_goal.get("prep_plan_json") else {}

@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 
 from fitnessbot import db
 from fitnessbot.metrics import get_weight_summary
-from fitnessbot.tz import user_today, user_date_fmt
+from fitnessbot.tz import user_today, user_date_fmt, day_utc_range, utc_offset_hours as _utc_off
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ def compute_adaptive_tdee(user_id: int, days: int = 28) -> float | None:
     Formula: TDEE ≈ avg_daily_intake - (weight_change_lbs × 3500 / days)
     Needs at least 14 days of data to be meaningful.
     """
-    cal_history = db.get_calorie_history(user_id, days)
+    cal_history = db.get_calorie_history(user_id, days, utc_offset_hours=_utc_off(user_id))
     if len(cal_history) < 14:
         return None
 
@@ -302,10 +302,11 @@ def _deterministic_focus(targets: dict, totals: dict) -> str:
 def build_today_summary(user_id: int) -> dict:
     """Build a rich today summary for the dashboard."""
     today = user_today(user_id)
-    totals = db.get_today_totals(user_id, today)
+    urange = day_utc_range(today, user_id)
+    totals = db.get_today_totals(user_id, today, utc_range=urange)
     targets = get_nutrition_targets(user_id)
     weight = get_weight_summary(user_id)
-    meal_count = db.get_meal_count_today(user_id, today)
+    meal_count = db.get_meal_count_today(user_id, today, utc_range=urange)
 
     # Get sleep/workout data for today
     sleep_data = db.get_health_data_today(user_id, today, "sleep")
@@ -368,7 +369,7 @@ def build_month_summary(user_id: int) -> dict:
     days_in_month = now.day
 
     # Calorie history for this month
-    cal_history = db.get_calorie_history(user_id, days_in_month)
+    cal_history = db.get_calorie_history(user_id, days_in_month, utc_offset_hours=_utc_off(user_id))
     targets = get_nutrition_targets(user_id)
 
     # Averages

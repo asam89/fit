@@ -16,7 +16,7 @@ from fitnessbot.metrics import get_weight_summary
 from fitnessbot.nutrition import get_nutrition_targets, build_today_summary, build_month_summary
 from fitnessbot.web.auth import get_current_user
 from fitnessbot.inference.base import InferenceError
-from fitnessbot.tz import user_today, user_date_fmt, user_hour, user_now, _tz
+from fitnessbot.tz import user_today, user_date_fmt, user_hour, user_now, _tz, day_utc_range, utc_offset_hours
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ def _localize_meals(meals: list[dict], tz_str: str) -> list[dict]:
 RANGE_DAYS = {"week": 7, "month": 30, "quarter": 90, "year": 365}
 
 
-def _build_gaps(user_id: int, today: str, totals: dict, weight: dict, connection: dict | None) -> list[dict]:
+def _build_gaps(user_id: int, today: str, totals: dict, weight: dict, connection: dict | None, *, utc_range: tuple[str, str] | None = None) -> list[dict]:
     gaps = []
     if not connection:
         gaps.append({
@@ -59,7 +59,7 @@ def _build_gaps(user_id: int, today: str, totals: dict, weight: dict, connection
             "link_text": "Quick Log",
             "icon": "meal",
         })
-    elif db.get_meal_count_today(user_id, today) < 2:
+    elif db.get_meal_count_today(user_id, today, utc_range=utc_range) < 2:
         hour = user_hour(user_id)
         if hour >= 18:
             gaps.append({
@@ -94,21 +94,23 @@ async def dashboard_home(request: Request):
     uid = user["user_id"]
     tz_str = user.get("timezone", "America/Toronto")
     today = user_today(uid, tz_str=tz_str)
-    totals = db.get_today_totals(uid, today)
+    urange = day_utc_range(today, uid, tz_str=tz_str)
+    tz_offset = utc_offset_hours(uid, tz_str=tz_str)
+    totals = db.get_today_totals(uid, today, utc_range=urange)
     recent_meals = _localize_meals(db.get_recent_meals(uid, limit=5), tz_str)
-    today_meals = _localize_meals(db.get_meals_by_date(uid, today), tz_str)
+    today_meals = _localize_meals(db.get_meals_by_date(uid, today, utc_range=urange), tz_str)
     for meal in today_meals:
         meal["items"] = db.get_meal_items(meal["meal_id"])
-    meal_dates = db.get_meal_dates_with_counts(uid, limit=7)
+    meal_dates = db.get_meal_dates_with_counts(uid, limit=7, utc_offset_hours=tz_offset)
     weight = get_weight_summary(uid)
     connection = db.get_telegram_connection(uid)
     active_goal = db.get_active_goal(uid)
     archived_goals = db.get_archived_goals(uid)
     goal_stats = db.get_goal_stats(uid)
     weight_history = db.get_weight_trend_range(uid, 30)
-    calorie_history = db.get_calorie_history(uid, 30)
-    heatmap_data = db.get_logging_heatmap(uid)
-    meal_count = db.get_meal_count_today(uid, today)
+    calorie_history = db.get_calorie_history(uid, 30, utc_offset_hours=tz_offset)
+    heatmap_data = db.get_logging_heatmap(uid, utc_offset_hours=tz_offset)
+    meal_count = db.get_meal_count_today(uid, today, utc_range=urange)
 
     # Single source of truth: nutrition_targets
     targets = get_nutrition_targets(uid)
@@ -125,7 +127,7 @@ async def dashboard_home(request: Request):
     pct["sodium"] = min(100, int((totals.get("sodium", 0) or 0) / sodium_target * 100))
 
     remaining_cal = targets["calories"] - totals["calories"]
-    gaps = _build_gaps(uid, today, totals, weight, connection)
+    gaps = _build_gaps(uid, today, totals, weight, connection, utc_range=urange)
 
     today_date = user_date_fmt(uid, tz_str=tz_str)
 
@@ -237,11 +239,13 @@ async def api_trends(request: Request):
     if not user:
         return JSONResponse({"error": "Not authenticated"}, status_code=401)
     uid = user["user_id"]
+    tz_str = user.get("timezone", "America/Toronto")
+    tz_offset = utc_offset_hours(uid, tz_str=tz_str)
     range_name = request.query_params.get("range", "month")
     days = RANGE_DAYS.get(range_name, 30)
     return JSONResponse({
         "weight": db.get_weight_trend_range(uid, days),
-        "calories": db.get_calorie_history(uid, days),
+        "calories": db.get_calorie_history(uid, days, utc_offset_hours=tz_offset),
     })
 
 
@@ -305,12 +309,12 @@ INTAKE_FALLBACK = [
 ]
 
 
-def _get_present_fields(uid: int, today: str) -> set:
+def _get_present_fields(uid: int, today: str, *, utc_range: tuple[str, str] | None = None) -> set:
     present = set()
     weight = get_weight_summary(uid)
     if weight.get("has_data") and weight.get("date") == today:
         present.add("weight")
-    totals = db.get_today_totals(uid, today)
+    totals = db.get_today_totals(uid, today, utc_range=utc_range)
     if totals["calories"] > 0:
         present.add("meals")
     return present
@@ -325,7 +329,8 @@ async def intake_next(request: Request):
     uid = user["user_id"]
     tz_str = user.get("timezone", "America/Toronto")
     today = user_today(uid, tz_str=tz_str)
-    present = _get_present_fields(uid, today)
+    urange = day_utc_range(today, uid, tz_str=tz_str)
+    present = _get_present_fields(uid, today, utc_range=urange)
 
     try:
         from fitnessbot.inference.factory import get_inference
@@ -523,8 +528,10 @@ async def food_diary(request: Request):
     if not date_str:
         date_str = user_today(uid)
     tz_str = user.get("timezone", "America/Toronto")
-    meals = _localize_meals(db.get_meals_by_date(uid, date_str), tz_str)
-    meal_dates = db.get_meal_dates_with_counts(uid, limit=60)
+    urange = day_utc_range(date_str, uid, tz_str=tz_str)
+    tz_offset = utc_offset_hours(uid, tz_str=tz_str)
+    meals = _localize_meals(db.get_meals_by_date(uid, date_str, utc_range=urange), tz_str)
+    meal_dates = db.get_meal_dates_with_counts(uid, limit=60, utc_offset_hours=tz_offset)
     for meal in meals:
         meal["items"] = db.get_meal_items(meal["meal_id"])
     return templates.TemplateResponse(
@@ -549,7 +556,8 @@ async def api_meals_by_date(request: Request):
     if not date_str:
         date_str = user_today(uid)
     tz_str = user.get("timezone", "America/Toronto")
-    meals = _localize_meals(db.get_meals_by_date(uid, date_str), tz_str)
+    urange = day_utc_range(date_str, uid, tz_str=tz_str)
+    meals = _localize_meals(db.get_meals_by_date(uid, date_str, utc_range=urange), tz_str)
     for meal in meals:
         meal["items"] = db.get_meal_items(meal["meal_id"])
     total_cal = sum(m.get("total_calories", 0) or 0 for m in meals)
