@@ -108,24 +108,51 @@
             </button>
           </div>
         </div>
+        <div class="grid grid-cols-4 gap-1 mt-2">
+          <div class="text-center p-1.5 bg-white rounded border border-gray-100">
+            <div class="text-[9px] text-faint uppercase">Cal</div>
+            <div class="text-xs font-semibold">{{ meal.total_calories|int }}</div>
+          </div>
+          <div class="text-center p-1.5 bg-white rounded border border-gray-100">
+            <div class="text-[9px] text-faint uppercase">Protein</div>
+            <div class="text-xs font-semibold">{{ meal.total_protein|int }}g</div>
+          </div>
+          <div class="text-center p-1.5 bg-white rounded border border-gray-100">
+            <div class="text-[9px] text-faint uppercase">Carbs</div>
+            <div class="text-xs font-semibold">{{ meal.total_carbs|int }}g</div>
+          </div>
+          <div class="text-center p-1.5 bg-white rounded border border-gray-100">
+            <div class="text-[9px] text-faint uppercase">Fat</div>
+            <div class="text-xs font-semibold">{{ meal.total_fat|int }}g</div>
+          </div>
+        </div>
+        {% if meal.total_fiber or meal.total_sugar or meal.total_sodium %}
+        <div class="grid grid-cols-3 gap-1 mt-1">
+          <div class="text-center p-1 bg-white rounded border border-gray-100">
+            <div class="text-[9px] text-faint uppercase">Fiber</div>
+            <div class="text-[10px] font-medium">{{ meal.total_fiber|default(0)|int }}g</div>
+          </div>
+          <div class="text-center p-1 bg-white rounded border border-gray-100">
+            <div class="text-[9px] text-faint uppercase">Sugar</div>
+            <div class="text-[10px] font-medium">{{ meal.total_sugar|default(0)|int }}g</div>
+          </div>
+          <div class="text-center p-1 bg-white rounded border border-gray-100">
+            <div class="text-[9px] text-faint uppercase">Sodium</div>
+            <div class="text-[10px] font-medium">{{ meal.total_sodium|default(0)|int }}mg</div>
+          </div>
+        </div>
+        {% endif %}
         {% if meal['items'] %}
         <div class="mt-2 pt-2 border-t border-gray-100 space-y-1">
+          <div class="text-[9px] text-faint uppercase font-semibold mb-1">Items</div>
           {% for item in meal['items'] %}
-          <div class="flex justify-between text-xs">
-            <span class="text-muted">{{ item.food_name or 'Item' }}{% if item.quantity and item.quantity != 1 %} x{{ item.quantity }}{% endif %}</span>
-            <span class="text-faint font-mono">{{ item.calories|int if item.calories else '—' }} cal</span>
+          <div class="flex items-center justify-between text-xs py-0.5">
+            <span class="text-muted truncate flex-1">{{ item.food_name or 'Item' }}{% if item.qty and item.qty != 1 %} x{{ item.qty }}{% endif %}</span>
+            <span class="text-faint font-mono ml-2 flex-shrink-0">{{ item.calories|int }}cal · {{ item.protein|int }}p · {{ item.carbs|int }}c · {{ item.fat|int }}f</span>
           </div>
           {% endfor %}
         </div>
         {% endif %}
-        <div class="flex flex-wrap gap-3 mt-2 text-[11px] text-faint">
-          <span>P: {{ meal.total_protein|int if meal.total_protein else 0 }}g</span>
-          <span>C: {{ meal.total_carbs|int if meal.total_carbs else 0 }}g</span>
-          <span>F: {{ meal.total_fat|int if meal.total_fat else 0 }}g</span>
-          {% if meal.total_fiber %}<span>Fiber: {{ meal.total_fiber|int }}g</span>{% endif %}
-          {% if meal.total_sugar %}<span>Sugar: {{ meal.total_sugar|int }}g</span>{% endif %}
-          {% if meal.total_sodium %}<span>Na: {{ meal.total_sodium|int }}mg</span>{% endif %}
-        </div>
       </div>
       {% endfor %}
     {% else %}
