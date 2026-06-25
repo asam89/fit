@@ -4,6 +4,7 @@ import math
 from datetime import datetime, timezone
 
 from fitnessbot import db
+from fitnessbot.tz import user_today
 
 
 def log_weight(
@@ -22,7 +23,7 @@ def log_weight(
         source=source,
     )
 
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = user_today(user_id)
     smoothed = compute_smoothed_weight(user_id, weight)
     trend_7d, trend_30d = compute_trends(user_id)
 

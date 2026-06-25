@@ -88,7 +88,7 @@ def log_meal_from_parsed(
     total_sodium = sum(item.get("sodium", 0) for item in items)
 
     if not meal_type:
-        meal_type = _infer_meal_type()
+        meal_type = _infer_meal_type(user_id)
 
     meal_id = db.insert_meal(
         user_id=user_id,
@@ -148,18 +148,9 @@ def log_meal_from_parsed(
     }
 
 
-def _infer_meal_type() -> str:
-    from datetime import datetime
-    import pytz
-
-    try:
-        tz = pytz.timezone(Config.TIMEZONE)
-        now = datetime.now(tz)
-    except Exception:
-        from datetime import timezone
-        now = datetime.now(timezone.utc)
-
-    hour = now.hour
+def _infer_meal_type(user_id: int | None = None) -> str:
+    from fitnessbot.tz import user_hour
+    hour = user_hour(user_id) if user_id else 12
     if hour < 11:
         return "breakfast"
     elif hour < 15:

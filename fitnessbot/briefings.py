@@ -8,6 +8,7 @@ from fitnessbot import db
 from fitnessbot.metrics import get_weight_summary
 from fitnessbot.nutrition import get_nutrition_targets
 from fitnessbot.web.connections import decrypt_token
+from fitnessbot.tz import user_today
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ def build_morning_brief(user_id: int) -> str:
 
 
 def build_midday_check(user_id: int) -> str:
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = user_today(user_id)
     totals = db.get_today_totals(user_id, today)
     targets = _get_user_targets(user_id)
     meal_count = db.get_meal_count_today(user_id, today)
@@ -115,7 +116,7 @@ def build_midday_check(user_id: int) -> str:
 
 
 def build_evening_wrap(user_id: int) -> str:
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = user_today(user_id)
     totals = db.get_today_totals(user_id, today)
     targets = _get_user_targets(user_id)
     weight = get_weight_summary(user_id)

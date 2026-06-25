@@ -1517,7 +1517,8 @@ def get_all_users() -> list[dict]:
 def get_user_activity_stats(user_id: int) -> dict:
     conn = get_connection()
     try:
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        from fitnessbot.tz import user_today
+        today = user_today(user_id)
         meals_today = conn.execute(
             "SELECT COUNT(*) as c FROM meals WHERE user_id = ? AND DATE(logged_at) = ?",
             (user_id, today),
@@ -1945,7 +1946,8 @@ def get_platform_stats() -> dict:
         ).fetchone()["c"]
         meals_total = conn.execute("SELECT COUNT(*) as c FROM meals").fetchone()["c"]
         llm_total = conn.execute("SELECT COUNT(*) as c FROM llm_analysis").fetchone()["c"]
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        from fitnessbot.tz import user_today
+        today = user_today()
         meals_today = conn.execute(
             "SELECT COUNT(*) as c FROM meals WHERE DATE(logged_at) = ?", (today,)
         ).fetchone()["c"]
@@ -2834,7 +2836,8 @@ def get_unread_nudge_count(user_id: int) -> int:
 def count_nudges_sent_today(sender_id: int, recipient_id: int) -> int:
     conn = get_connection()
     try:
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        from fitnessbot.tz import user_today
+        today = user_today(sender_id)
         row = conn.execute(
             "SELECT COUNT(*) as c FROM nudges WHERE sender_id=? AND recipient_id=? AND created_at >= ?",
             (sender_id, recipient_id, today),
@@ -2868,7 +2871,8 @@ def get_friend_summary(user_id: int, viewer_id: int) -> dict:
     summary = {"user_id": user_id, "private": False}
     conn = get_connection()
     try:
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        from fitnessbot.tz import user_today
+        today = user_today(user_id)
 
         if settings.get("share_goals"):
             goal = conn.execute(
