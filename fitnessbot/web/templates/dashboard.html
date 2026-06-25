@@ -207,6 +207,15 @@
           <div class="text-xs text-faint font-mono uppercase tracking-wider mb-1">TDEE</div>
           <div class="text-lg font-display font-bold">{{ targets.tdee }} <span class="text-sm font-normal text-muted">cal</span></div>
           <div class="text-[10px] text-faint">{{ targets.method }}{% if targets.goal_delta %} · {{ targets.goal_type }} ({{ '+' if targets.goal_delta > 0 }}{{ targets.goal_delta }}){% else %} · {{ targets.goal_type }}{% endif %}</div>
+          <div class="mt-1">
+            <select id="activity-level-select" onchange="updateActivityLevel(this.value)" class="text-[11px] text-muted bg-card border border-border rounded px-1.5 py-0.5 cursor-pointer">
+              <option value="sedentary" {% if activity_level == 'sedentary' %}selected{% endif %}>Sedentary (1.2×)</option>
+              <option value="lightly_active" {% if activity_level == 'lightly_active' %}selected{% endif %}>Lightly Active (1.375×)</option>
+              <option value="moderately_active" {% if activity_level == 'moderately_active' %}selected{% endif %}>Moderately Active (1.55×)</option>
+              <option value="very_active" {% if activity_level == 'very_active' %}selected{% endif %}>Very Active (1.725×)</option>
+              <option value="extra_active" {% if activity_level == 'extra_active' %}selected{% endif %}>Extra Active (1.9×)</option>
+            </select>
+          </div>
         </div>
         <div class="self-center">
           <button id="recalc-btn" onclick="recalcTargets()" class="text-xs font-medium text-accent hover:text-accent-press bg-accent-soft px-3 py-1.5 rounded-lg transition-colors" title="Recalculate targets from your latest body metrics">
@@ -1798,6 +1807,24 @@ document.querySelectorAll('[data-range]').forEach(btn=>{
 })();
 
 // ===== RECALCULATE TARGETS =====
+async function updateActivityLevel(level) {
+  try {
+    const res = await fetch('/api/activity-level', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ activity_level: level })
+    });
+    if (res.ok) {
+      window.location.reload();
+    } else {
+      const data = await res.json();
+      alert(data.error || 'Failed to update activity level');
+    }
+  } catch (err) {
+    alert('Network error — try again');
+  }
+}
+
 async function recalcTargets() {
   const btn = document.getElementById('recalc-btn');
   const orig = btn.innerHTML;
