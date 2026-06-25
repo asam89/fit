@@ -1,11 +1,20 @@
 {% extends "base.html" %}
-{% block title %}Register{% endblock %}
+{% block title %}Register — fit-ness{% endblock %}
 {% block content %}
-<div class="min-h-[80vh] flex items-center justify-center">
+<div class="min-h-[80vh] flex flex-col items-center justify-center gap-8">
+
+  <!-- Hero tagline -->
+  <div class="text-center max-w-lg">
+    <h1 class="font-display text-3xl sm:text-4xl font-bold tracking-tight mb-2">
+      fit<span class="text-accent">-</span><span class="text-faint font-medium">ness</span>
+    </h1>
+    <p class="text-muted text-sm sm:text-base">Your AI-powered fitness companion. Track meals, macros, workouts, and wearable data — all through Telegram and a personal dashboard.</p>
+  </div>
+
+  <!-- Registration card -->
   <div class="bg-white border border-gray-200 p-8 rounded-xl shadow-sm w-full max-w-md">
     <div class="text-center mb-6">
-      <h1 class="font-display text-2xl font-bold tracking-tight">fit<span class="text-accent">-</span><span class="text-faint font-medium">ness</span></h1>
-      <p class="text-sm text-muted mt-1">Create your account</p>
+      <p class="text-sm text-muted">Create your account</p>
     </div>
     {% if error %}
     <div class="bg-warm-soft text-miss px-4 py-3 rounded-lg mb-4 text-sm">{{ error }}</div>
@@ -77,6 +86,143 @@
     <p class="text-center text-sm text-muted mt-4">
       Already have an account? <a href="/login" class="text-accent hover:text-accent-press font-medium">Sign In</a>
     </p>
+  </div>
+
+  <!-- How to Use -->
+  <div class="w-full max-w-2xl">
+    <div class="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+      <div class="px-6 py-4 border-b border-gray-100 text-center">
+        <h2 class="font-display text-lg font-semibold">How It Works</h2>
+        <p class="text-xs text-muted mt-1">Get started in 3 simple steps</p>
+      </div>
+      <div class="px-6 py-6">
+
+        <!-- Steps -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
+          <div class="text-center">
+            <div class="w-10 h-10 rounded-full bg-accent-soft text-accent flex items-center justify-center mx-auto mb-3 font-display font-bold text-sm">1</div>
+            <h3 class="text-sm font-semibold text-ink mb-1">Create Your Account</h3>
+            <p class="text-xs text-muted">Sign up with email or Google. Set your timezone, units, and fitness goals in Settings.</p>
+          </div>
+          <div class="text-center">
+            <div class="w-10 h-10 rounded-full bg-accent-soft text-accent flex items-center justify-center mx-auto mb-3 font-display font-bold text-sm">2</div>
+            <h3 class="text-sm font-semibold text-ink mb-1">Connect Telegram</h3>
+            <p class="text-xs text-muted">Link your Telegram bot in Settings. Text, voice, or send photos of your meals — the AI logs everything.</p>
+          </div>
+          <div class="text-center">
+            <div class="w-10 h-10 rounded-full bg-accent-soft text-accent flex items-center justify-center mx-auto mb-3 font-display font-bold text-sm">3</div>
+            <h3 class="text-sm font-semibold text-ink mb-1">Track & Improve</h3>
+            <p class="text-xs text-muted">View your dashboard for daily macros, trends, training plans, and personalized coaching insights.</p>
+          </div>
+        </div>
+
+        <!-- Features grid -->
+        <div class="border-t border-gray-100 pt-6">
+          <h3 class="text-sm font-semibold text-ink text-center mb-4">What You Can Do</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="flex items-start gap-3 p-3 rounded-lg bg-gray-50/80">
+              <div class="w-8 h-8 rounded-lg bg-green-50 text-green-600 flex items-center justify-center flex-shrink-0">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-sm font-medium text-ink">Photo Meal Logging</p>
+                <p class="text-xs text-muted">Snap a photo of your meal — AI identifies foods and estimates calories, protein, carbs, fat, and more.</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3 p-3 rounded-lg bg-gray-50/80">
+              <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-sm font-medium text-ink">Voice & Text Tracking</p>
+                <p class="text-xs text-muted">Send a voice note or type naturally: "I had a chicken salad for lunch." The AI understands and logs it.</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3 p-3 rounded-lg bg-gray-50/80">
+              <div class="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center flex-shrink-0">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-sm font-medium text-ink">Dashboard & Macros</p>
+                <p class="text-xs text-muted">See daily calories, protein, carbs, fat, fiber, sugar, sodium, and water — with progress bars and targets.</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3 p-3 rounded-lg bg-gray-50/80">
+              <div class="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center flex-shrink-0">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-sm font-medium text-ink">Wearable Sync</p>
+                <p class="text-xs text-muted">Import health data from Apple Health, Samsung Health, Garmin, Fitbit, or Oura using the /sync command.</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3 p-3 rounded-lg bg-gray-50/80">
+              <div class="w-8 h-8 rounded-lg bg-red-50 text-red-600 flex items-center justify-center flex-shrink-0">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.362 5.214A8.252 8.252 0 0 1 12 21 8.25 8.25 0 0 1 6.038 7.047 8.287 8.287 0 0 0 9 9.601a8.983 8.983 0 0 1 3.361-6.867 8.21 8.21 0 0 0 3 2.48Z"/>
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 18a3.75 3.75 0 0 0 .495-7.468 5.99 5.99 0 0 0-1.925 3.547 5.975 5.975 0 0 1-2.133-1.001A3.75 3.75 0 0 0 12 18Z"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-sm font-medium text-ink">Training Plans</p>
+                <p class="text-xs text-muted">AI-generated weekly workout plans tailored to your goals. Check off activities from Telegram or dashboard.</p>
+              </div>
+            </div>
+            <div class="flex items-start gap-3 p-3 rounded-lg bg-gray-50/80">
+              <div class="w-8 h-8 rounded-lg bg-teal-50 text-teal-600 flex items-center justify-center flex-shrink-0">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-sm font-medium text-ink">Friends & Social</p>
+                <p class="text-xs text-muted">Invite friends, share progress, send nudges, and stay accountable together.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Telegram commands -->
+        <div class="border-t border-gray-100 pt-6 mt-6">
+          <h3 class="text-sm font-semibold text-ink text-center mb-3">Telegram Commands</h3>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <div class="bg-gray-50 rounded-lg p-2.5 text-center">
+              <code class="text-xs font-mono text-accent font-medium">/today</code>
+              <p class="text-xs text-muted mt-0.5">Daily summary</p>
+            </div>
+            <div class="bg-gray-50 rounded-lg p-2.5 text-center">
+              <code class="text-xs font-mono text-accent font-medium">/weight</code>
+              <p class="text-xs text-muted mt-0.5">Weight trend</p>
+            </div>
+            <div class="bg-gray-50 rounded-lg p-2.5 text-center">
+              <code class="text-xs font-mono text-accent font-medium">/plan</code>
+              <p class="text-xs text-muted mt-0.5">Training plan</p>
+            </div>
+            <div class="bg-gray-50 rounded-lg p-2.5 text-center">
+              <code class="text-xs font-mono text-accent font-medium">/sync</code>
+              <p class="text-xs text-muted mt-0.5">Import wearable data</p>
+            </div>
+            <div class="bg-gray-50 rounded-lg p-2.5 text-center">
+              <code class="text-xs font-mono text-accent font-medium">/undo</code>
+              <p class="text-xs text-muted mt-0.5">Delete a meal</p>
+            </div>
+            <div class="bg-gray-50 rounded-lg p-2.5 text-center">
+              <code class="text-xs font-mono text-accent font-medium">/invite</code>
+              <p class="text-xs text-muted mt-0.5">Invite a friend</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}
