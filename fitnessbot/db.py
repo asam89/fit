@@ -2433,37 +2433,69 @@ def get_sleep_history(user_id: int, days: int = 7) -> list[dict]:
 
 
 def get_workout_history(user_id: int, days: int = 7) -> list[dict]:
+    """Return distinct workout sessions (not individual exercises).
+
+    Entries logged within the same 90-minute window on the same date are
+    treated as a single session.  The session inherits the type/activity
+    of the first entry and aggregates duration.
+    """
     conn = get_connection()
     try:
         rows = conn.execute(
-            """SELECT DATE(recorded_at) as date, data_json, notes
+            """SELECT recorded_at, data_json, notes
                FROM health_data WHERE user_id = ? AND data_type = 'workout'
                AND DATE(recorded_at) >= date('now', ?)
-               ORDER BY date ASC""",
+               ORDER BY recorded_at ASC""",
             (user_id, f"-{days} days"),
         ).fetchall()
-        result = []
-        for r in rows:
-            import json as _json
-            d = _json.loads(r["data_json"]) if r["data_json"] else {}
-            d["date"] = r["date"]
-            d["notes"] = r["notes"]
-            result.append(d)
-        return result
+        return _dedupe_workout_rows(rows)
     finally:
         conn.close()
+
+
+def _dedupe_workout_rows(rows) -> list[dict]:
+    """Collapse raw workout rows into distinct sessions.
+
+    Two entries belong to the same session when they fall within a
+    90-minute window of each other.
+    """
+    import json as _json
+    from datetime import datetime as _dt, timedelta as _td
+    SESSION_GAP = _td(minutes=90)
+    sessions: list[dict] = []
+    last_ts = None
+    for r in rows:
+        raw_ts = r["recorded_at"] if isinstance(r, dict) else r["recorded_at"]
+        try:
+            ts = _dt.fromisoformat(raw_ts.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            ts = None
+        data = _json.loads(r["data_json"]) if r["data_json"] else {}
+        date_str = raw_ts[:10] if raw_ts else "?"
+
+        if last_ts is None or ts is None or (ts - last_ts) > SESSION_GAP:
+            # New session
+            data["date"] = date_str
+            data["notes"] = r["notes"]
+            data["_exercise_count"] = 1
+            sessions.append(data)
+        else:
+            # Same session — merge
+            cur = sessions[-1]
+            cur["_exercise_count"] = cur.get("_exercise_count", 1) + 1
+            dur_new = data.get("duration_min")
+            if dur_new:
+                cur["duration_min"] = (cur.get("duration_min") or 0) + dur_new
+            if r["notes"] and not cur.get("notes"):
+                cur["notes"] = r["notes"]
+        if ts is not None:
+            last_ts = ts
+    return sessions
 
 
 def get_workout_count_range(user_id: int, days: int) -> int:
-    conn = get_connection()
-    try:
-        row = conn.execute(
-            "SELECT COUNT(*) as c FROM health_data WHERE user_id = ? AND data_type = 'workout' AND DATE(recorded_at) >= date('now', ?)",
-            (user_id, f"-{days} days"),
-        ).fetchone()
-        return row["c"]
-    finally:
-        conn.close()
+    """Count distinct workout sessions (not individual exercises) in the period."""
+    return len(get_workout_history(user_id, days))
 
 
 # --- event_goals helpers ---

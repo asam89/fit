@@ -135,7 +135,13 @@ def build_evening_wrap(user_id: int) -> str:
 
     def _stat(label, actual, target, unit=""):
         diff = target - actual
-        status = "on target" if abs(diff) < target * 0.05 else f"{abs(diff):.0f}{unit} {'short' if diff > 0 else 'over'}"
+        pct = abs(diff) / target if target else 0
+        if pct < 0.05:
+            status = "on target"
+        elif diff > 0:
+            status = f"{abs(diff):.0f}{unit} short"
+        else:
+            status = f"exceeded by {abs(diff):.0f}{unit}"
         return f"{label}  {actual:.0f} / {target}{unit}   {status}"
 
     lines.append(_stat("Calories", totals["calories"], targets["calories"]))
@@ -179,15 +185,20 @@ def build_weekly_rollup(user_id: int) -> str:
     week_start = (today - timedelta(days=7)).strftime("%Y-%m-%d")
     week_end = today.strftime("%Y-%m-%d")
 
-    from fitnessbot.tz import utc_offset_hours as _utc_off
+    from fitnessbot.tz import utc_offset_hours as _utc_off, user_today as _user_today
+    today_str = _user_today(user_id)
     cal_hist = db.get_calorie_history(user_id, 7, utc_offset_hours=_utc_off(user_id))
-    avg_cal = sum(d["calories"] for d in cal_hist) / max(len(cal_hist), 1) if cal_hist else 0
+    # Exclude today (in-progress) from completed-day averages
+    completed = [d for d in cal_hist if d["date"] != today_str]
+    today_entry = next((d for d in cal_hist if d["date"] == today_str), None)
+    avg_cal = sum(d["calories"] for d in completed) / max(len(completed), 1) if completed else 0
     targets = _get_user_targets(user_id)
     weight = get_weight_summary(user_id)
 
     lines = [f"*Week of {week_start} to {week_end}*", ""]
-    lines.append(f"Intake  avg {avg_cal:.0f} kcal/day (target {targets['calories']})")
-    lines.append(f"Logging days  {len(cal_hist)} of 7")
+    lines.append(f"Intake  avg {avg_cal:.0f} kcal/day over {len(completed)} completed day{'s' if len(completed) != 1 else ''} (profile target {targets['calories']})")
+    if today_entry:
+        lines.append(f"Today (in progress)  {today_entry['calories']:.0f} kcal so far")
     if weight.get("has_data"):
         lines.append(f"Weight  {weight['current_smoothed']} lbs")
         if weight.get("trend_7d") is not None:

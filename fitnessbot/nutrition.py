@@ -530,21 +530,31 @@ def build_today_summary(user_id: int) -> dict:
 
 
 def build_month_summary(user_id: int) -> dict:
-    """Build a month-to-date summary for the dashboard."""
+    """Build a month-to-date summary for the dashboard.
+
+    Today is excluded from averages and target-hit counts because it is
+    still in progress.  It is shown separately.
+    """
+    from fitnessbot.tz import user_today as _user_today
     now = datetime.now(timezone.utc)
     month_start = now.strftime("%Y-%m-01")
     days_in_month = now.day
+    today_str = _user_today(user_id)
 
     # Calorie history for this month
     cal_history = db.get_calorie_history(user_id, days_in_month, utc_offset_hours=_utc_off(user_id))
     targets = get_nutrition_targets(user_id)
 
-    # Averages
-    if cal_history:
-        avg_cal = sum(d["calories"] for d in cal_history) / len(cal_history)
-        avg_protein = sum(d.get("protein", 0) for d in cal_history) / len(cal_history)
-        logging_days = len(cal_history)
-        days_on_target = sum(1 for d in cal_history if abs(d["calories"] - targets["calories"]) < targets["calories"] * 0.1)
+    # Exclude today (in-progress) from completed-day averages
+    completed = [d for d in cal_history if d["date"] != today_str]
+    today_entry = next((d for d in cal_history if d["date"] == today_str), None)
+
+    # Averages over completed days only
+    if completed:
+        avg_cal = sum(d["calories"] for d in completed) / len(completed)
+        avg_protein = sum(d.get("protein", 0) for d in completed) / len(completed)
+        logging_days = len(completed)
+        days_on_target = sum(1 for d in completed if d["calories"] >= targets["calories"] * 0.95)
     else:
         avg_cal = 0
         avg_protein = 0
@@ -565,7 +575,7 @@ def build_month_summary(user_id: int) -> dict:
         if weight_start and weight_end:
             weight_change = weight_end - weight_start
 
-    # Workouts this month
+    # Workouts this month (distinct sessions)
     workouts = db.get_workout_count_range(user_id, days_in_month)
 
     # Build prose
@@ -573,23 +583,24 @@ def build_month_summary(user_id: int) -> dict:
     parts = []
 
     if logging_days == 0:
-        prose = f"**{month_name} so far.** No data logged this month yet."
+        prose = f"**{month_name} so far.** No completed days logged this month yet."
     else:
-        parts.append(f"avg {avg_cal:.0f} kcal/day (target {targets['calories']})")
+        parts.append(f"avg {avg_cal:.0f} kcal/day over {logging_days} completed days (profile target {targets['calories']})")
         if avg_protein > 0:
             parts.append(f"avg {avg_protein:.0f}g protein")
-        parts.append(f"logged {logging_days} of {days_in_month} days")
         if days_on_target > 0:
-            parts.append(f"on target {days_on_target} days")
+            parts.append(f"met/exceeded target {days_on_target} days")
 
         if weight_change is not None:
             direction = "down" if weight_change < 0 else "up"
             parts.append(f"{abs(weight_change):.1f} lb {direction}")
 
         if workouts > 0:
-            parts.append(f"{workouts} workout{'s' if workouts != 1 else ''}")
+            parts.append(f"{workouts} workout session{'s' if workouts != 1 else ''}")
 
         prose = f"**{month_name} so far.** " + " · ".join(parts) + "."
+        if today_entry:
+            prose += f" Today in progress: {today_entry['calories']:.0f} kcal so far."
 
     return {
         "prose": prose,
