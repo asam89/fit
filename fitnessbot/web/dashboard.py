@@ -16,12 +16,29 @@ from fitnessbot.metrics import get_weight_summary
 from fitnessbot.nutrition import get_nutrition_targets, build_today_summary, build_month_summary
 from fitnessbot.web.auth import get_current_user
 from fitnessbot.inference.base import InferenceError
-from fitnessbot.tz import user_today, user_date_fmt, user_hour, user_now
+from fitnessbot.tz import user_today, user_date_fmt, user_hour, user_now, _tz
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Config.TEMPLATE_DIR))
+
+
+def _localize_meals(meals: list[dict], tz_str: str) -> list[dict]:
+    """Convert logged_at from UTC to user's local timezone for display."""
+    tz = _tz(tz_str)
+    for meal in meals:
+        ts = meal.get("logged_at")
+        if ts and isinstance(ts, str) and len(ts) >= 16:
+            try:
+                utc_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                if utc_dt.tzinfo is None:
+                    utc_dt = utc_dt.replace(tzinfo=timezone.utc)
+                local_dt = utc_dt.astimezone(tz)
+                meal["logged_at"] = local_dt.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                pass
+    return meals
 
 RANGE_DAYS = {"week": 7, "month": 30, "quarter": 90, "year": 365}
 
@@ -78,8 +95,8 @@ async def dashboard_home(request: Request):
     tz_str = user.get("timezone", "America/Toronto")
     today = user_today(uid, tz_str=tz_str)
     totals = db.get_today_totals(uid, today)
-    recent_meals = db.get_recent_meals(uid, limit=5)
-    today_meals = db.get_meals_by_date(uid, today)
+    recent_meals = _localize_meals(db.get_recent_meals(uid, limit=5), tz_str)
+    today_meals = _localize_meals(db.get_meals_by_date(uid, today), tz_str)
     meal_dates = db.get_meal_dates_with_counts(uid, limit=7)
     weight = get_weight_summary(uid)
     connection = db.get_telegram_connection(uid)
@@ -503,9 +520,9 @@ async def food_diary(request: Request):
     date_str = request.query_params.get("date", "")
     if not date_str:
         date_str = user_today(uid)
-    meals = db.get_meals_by_date(uid, date_str)
+    tz_str = user.get("timezone", "America/Toronto")
+    meals = _localize_meals(db.get_meals_by_date(uid, date_str), tz_str)
     meal_dates = db.get_meal_dates_with_counts(uid, limit=60)
-    # Get items for each meal
     for meal in meals:
         meal["items"] = db.get_meal_items(meal["meal_id"])
     return templates.TemplateResponse(
@@ -529,7 +546,8 @@ async def api_meals_by_date(request: Request):
     date_str = request.query_params.get("date", "")
     if not date_str:
         date_str = user_today(uid)
-    meals = db.get_meals_by_date(uid, date_str)
+    tz_str = user.get("timezone", "America/Toronto")
+    meals = _localize_meals(db.get_meals_by_date(uid, date_str), tz_str)
     for meal in meals:
         meal["items"] = db.get_meal_items(meal["meal_id"])
     total_cal = sum(m.get("total_calories", 0) or 0 for m in meals)

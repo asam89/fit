@@ -542,8 +542,8 @@
   <!-- ===== CONSISTENCY HEATMAP ===== -->
   <section id="consistency">
     <div class="card p-5">
-      <div class="eyebrow mb-3">Consistency — past year</div>
-      <div id="heatmap" class="overflow-x-auto"></div>
+      <div class="eyebrow mb-3">Consistency — last 30 days</div>
+      <div id="heatmap"></div>
     </div>
   </section>
 
@@ -931,22 +931,46 @@ document.querySelectorAll('[data-range]').forEach(btn=>{
   };
 });
 
-// Consistency heatmap
+// Consistency heatmap — last 30 days
 (function(){
   const container=document.getElementById('heatmap');
   if(!HEATMAP_DATA.length){container.innerHTML='<p class="text-sm text-faint">Start logging to see your consistency.</p>';return;}
   const byDate={};
   HEATMAP_DATA.forEach(d=>{byDate[d.date]=d.count;});
   const today=new Date();
-  const start=new Date(today);
-  start.setDate(start.getDate()-364);
-  let html='<div style="display:flex;gap:2px;flex-wrap:wrap">';
-  for(let d=new Date(start);d<=today;d.setDate(d.getDate()+1)){
-    const ds=d.toISOString().slice(0,10);
-    const c=byDate[ds]||0;
-    const color=c===0?'#EFF1F5':c===1?'#c7d0ff':c>=2?'#2D52F5':'#EFF1F5';
-    html+=`<div title="${ds}: ${c} entries" style="width:10px;height:10px;border-radius:2px;background:${color}"></div>`;
+  const DAYS=30;
+  const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  const dates=[];
+  for(let i=DAYS-1;i>=0;i--){
+    const d=new Date(today);
+    d.setDate(today.getDate()-i);
+    const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),dd=String(d.getDate()).padStart(2,'0');
+    dates.push({ds:`${y}-${m}-${dd}`,day:d.getDate(),dow:d.getDay(),month:d.getMonth(),monthName:MONTHS[d.getMonth()]});
   }
+
+  let html='<div style="display:grid;grid-template-columns:repeat('+DAYS+',1fr);gap:3px;text-align:center">';
+  // Month labels row
+  let prevMonth=-1;
+  dates.forEach(d=>{
+    if(d.month!==prevMonth){html+=`<div style="font-size:9px;color:#9CA3AF;font-weight:600">${d.monthName}</div>`;prevMonth=d.month;}
+    else{html+=`<div></div>`;}
+  });
+  // Day number row
+  dates.forEach(d=>{
+    html+=`<div style="font-size:9px;color:#9CA3AF">${d.day}</div>`;
+  });
+  // Day name row
+  dates.forEach(d=>{
+    html+=`<div style="font-size:8px;color:#BCC0CC">${DOW[d.dow].charAt(0)}</div>`;
+  });
+  // Heatmap cells
+  dates.forEach(d=>{
+    const c=byDate[d.ds]||0;
+    const color=c===0?'#EFF1F5':c===1?'#c7d0ff':c>=2?'#2D52F5':'#EFF1F5';
+    html+=`<div title="${d.ds}: ${c} entries" style="height:14px;border-radius:3px;background:${color}"></div>`;
+  });
   html+='</div>';
   container.innerHTML=html;
 })();
@@ -1135,18 +1159,22 @@ document.querySelectorAll('[data-range]').forEach(btn=>{
   const addModal = document.getElementById('planAddModal');
   let currentWeek = null;
 
+  function localDateStr(d){
+    const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), dd=String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${dd}`;
+  }
   function mondayOfWeek(d){
     const day = d.getDay();
     const diff = d.getDate() - day + (day===0 ? -6 : 1);
     const mon = new Date(d);
     mon.setDate(diff);
-    return mon.toISOString().slice(0,10);
+    return localDateStr(mon);
   }
 
   function shiftWeek(offset){
     const d = new Date(currentWeek + 'T00:00:00');
     d.setDate(d.getDate() + offset*7);
-    currentWeek = d.toISOString().slice(0,10);
+    currentWeek = localDateStr(d);
     loadPlan();
   }
 
@@ -1168,14 +1196,14 @@ document.querySelectorAll('[data-range]').forEach(btn=>{
       ? `<span class="font-medium">${adh.label}</span> activities completed${adh.rest_days?' · '+adh.rest_days+' rest day'+(adh.rest_days>1?'s':''):''}`
       : 'No activities planned yet';
 
-    const today = new Date().toISOString().slice(0,10);
+    const today = localDateStr(new Date());
     const ws = new Date(data.week_start+'T00:00:00');
 
     let html = '';
     for(let i=0;i<7;i++){
       const dayDate = new Date(ws);
       dayDate.setDate(ws.getDate()+i);
-      const dStr = dayDate.toISOString().slice(0,10);
+      const dStr = localDateStr(dayDate);
       const isToday = dStr === today;
       const dayItems = data.items.filter(it => it.date === dStr);
 
