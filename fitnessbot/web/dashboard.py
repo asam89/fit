@@ -118,13 +118,15 @@ async def dashboard_home(request: Request):
     pct = {}
     for k in ("calories", "protein", "carbs", "fat"):
         pct[k] = min(100, int(totals[k] / targets[k] * 100)) if targets.get(k) else 0
-    # New macro percentages with sensible defaults
     fiber_target = targets.get("fiber", 25) or 25
     sugar_target = targets.get("sugar", 50) or 50
     sodium_target = targets.get("sodium", 2300) or 2300
+    water_target = targets.get("water_ml", 2800) or 2800
     pct["fiber"] = min(100, int((totals.get("fiber", 0) or 0) / fiber_target * 100))
     pct["sugar"] = min(100, int((totals.get("sugar", 0) or 0) / sugar_target * 100))
     pct["sodium"] = min(100, int((totals.get("sodium", 0) or 0) / sodium_target * 100))
+    pct["water"] = min(100, int((totals.get("water_ml", 0) or 0) / water_target * 100))
+    pct["sat_fat"] = 0  # no target for sat_fat, just track consumption
 
     remaining_cal = targets["calories"] - totals["calories"]
     gaps = _build_gaps(uid, today, totals, weight, connection, utc_range=urange)
