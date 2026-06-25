@@ -20,28 +20,168 @@ ACTIVITY_MULTIPLIERS = {
     "extra_active": 1.9,
 }
 
-# Calorie adjustments per goal type
+# Calorie adjustments per goal type (capped at +/-500 per spec)
 GOAL_ADJUSTMENTS = {
+    "mild_loss": -250,
     "cut": -500,
-    "aggressive_cut": -750,
+    "aggressive_cut": -500,  # capped; was -750
     "maintain": 0,
+    "mild_gain": 250,
     "lean_bulk": 250,
     "bulk": 500,
 }
 
+# Macro preset splits: (protein%, carbs%, fat%) of total calories
+MACRO_PRESETS = {
+    "balanced": (0.30, 0.40, 0.30),
+    "high_protein": (0.40, 0.30, 0.30),
+    "low_carb": (0.35, 0.20, 0.45),
+}
+
+# Safety floors (kcal)
+SAFETY_FLOOR = {"male": 1500, "female": 1200}
+DEFAULT_SAFETY_FLOOR = 1200
+
 CALORIES_PER_LB = 3500
 
 
-def compute_bmr(sex: str, weight_lbs: float, height_inches: float | None, age_years: int | None) -> float:
-    """Mifflin-St Jeor BMR. Falls back to reasonable estimate if height/age missing."""
-    weight_kg = weight_lbs * 0.453592
-    height_cm = (height_inches * 2.54) if height_inches else 170.0
-    age = age_years if age_years else 30
+# --- Input validation helpers ---
+
+def clamp(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, value))
+
+
+def validate_age(age: int | None) -> int:
+    if age is None:
+        return 30
+    return int(clamp(age, 14, 100))
+
+
+def validate_weight_kg(weight_kg: float) -> float:
+    return clamp(weight_kg, 30.0, 300.0)
+
+
+def validate_height_cm(height_cm: float | None) -> float:
+    if height_cm is None:
+        return 170.0
+    return clamp(height_cm, 120.0, 230.0)
+
+
+def lbs_to_kg(lbs: float) -> float:
+    return lbs * 0.453592
+
+
+def inches_to_cm(inches: float) -> float:
+    return inches * 2.54
+
+
+# --- Pure calculation functions ---
+
+def compute_bmr(sex: str, weight_kg: float, height_cm: float | None, age_years: int | None) -> float:
+    """Mifflin-St Jeor BMR (pure function).
+
+    Args:
+        sex: 'male'/'m' or 'female'/'f'
+        weight_kg: body weight in kilograms
+        height_cm: height in centimeters (None → 170 default)
+        age_years: age in years (None → 30 default)
+    """
+    wkg = validate_weight_kg(weight_kg)
+    hcm = validate_height_cm(height_cm)
+    age = validate_age(age_years)
 
     if sex and sex.lower() in ("male", "m"):
-        return 10 * weight_kg + 6.25 * height_cm - 5 * age + 5
+        return 10 * wkg + 6.25 * hcm - 5 * age + 5
     else:
-        return 10 * weight_kg + 6.25 * height_cm - 5 * age - 161
+        return 10 * wkg + 6.25 * hcm - 5 * age - 161
+
+
+def compute_tdee(bmr: float, activity_level: str) -> float:
+    """TDEE = BMR * activity multiplier (pure function)."""
+    multiplier = ACTIVITY_MULTIPLIERS.get(activity_level, 1.55)
+    return bmr * multiplier
+
+
+def apply_goal(tdee: float, goal_type: str) -> float:
+    """Apply goal adjustment to TDEE (pure function)."""
+    delta = GOAL_ADJUSTMENTS.get(goal_type, 0)
+    return tdee + delta
+
+
+def apply_safety_floor(calories: float, sex: str) -> tuple[float, bool]:
+    """Clamp calories to safety floor. Returns (clamped_cal, was_clamped)."""
+    sex_key = "male" if sex and sex.lower() in ("male", "m") else "female"
+    floor = SAFETY_FLOOR.get(sex_key, DEFAULT_SAFETY_FLOOR)
+    if calories < floor:
+        return float(floor), True
+    return calories, False
+
+
+def derive_macro_targets(
+    calorie_target: float,
+    weight_kg: float,
+    sex: str,
+    goal_type: str = "maintain",
+    preset: str | None = None,
+) -> dict:
+    """Derive macro targets from calorie target and body weight (pure function).
+
+    Hierarchy: protein first (g/kg), fat second (25% or min 0.6 g/kg), carbs fill remainder.
+    If preset is given, use percentage-based split instead.
+    """
+    wkg = validate_weight_kg(weight_kg)
+
+    if preset and preset in MACRO_PRESETS:
+        prot_pct, carb_pct, fat_pct = MACRO_PRESETS[preset]
+        protein = round(calorie_target * prot_pct / 4)
+        carbs = round(calorie_target * carb_pct / 4)
+        fat = round(calorie_target * fat_pct / 9)
+    else:
+        # Protein: 1.6-2.2 g/kg based on goal
+        if goal_type in ("bulk", "lean_bulk", "mild_gain"):
+            prot_per_kg = 2.0
+        elif goal_type in ("cut", "aggressive_cut", "mild_loss"):
+            prot_per_kg = 2.0  # higher during cut to preserve muscle
+        else:
+            prot_per_kg = 1.8  # maintain
+        protein = round(wkg * prot_per_kg)
+
+        # Fat: 25% of calories, but at least 0.6 g/kg
+        fat_from_pct = calorie_target * 0.25 / 9
+        fat_floor = wkg * 0.6
+        fat = round(max(fat_from_pct, fat_floor))
+
+        # Carbs: fill remainder
+        protein_cals = protein * 4
+        fat_cals = fat * 9
+        carbs_cals = calorie_target - protein_cals - fat_cals
+        carbs = max(round(carbs_cals / 4), 50)
+
+    # Fiber: 14g per 1000 kcal, floor 25g (women) / 38g (men)
+    fiber_base = round(calorie_target * 14 / 1000)
+    if sex and sex.lower() in ("male", "m"):
+        fiber = max(fiber_base, 38)
+    else:
+        fiber = max(fiber_base, 25)
+
+    # Sugar: ~10% of calories (WHO)
+    sugar = round(calorie_target * 0.10 / 4)
+
+    # Sodium: FDA 2300 mg
+    sodium = 2300
+
+    # Water: 35 mL/kg bodyweight
+    water_ml = round(wkg * 35)
+
+    return {
+        "protein": protein,
+        "carbs": carbs,
+        "fat": fat,
+        "fiber": fiber,
+        "sugar": sugar,
+        "sodium": sodium,
+        "water_ml": water_ml,
+    }
 
 
 def _get_user_age(user: dict) -> int | None:
@@ -66,16 +206,21 @@ def _get_user_height_inches(user: dict) -> float | None:
         return None
 
 
-def compute_cold_start_tdee(user: dict, weight_lbs: float) -> float:
-    """Cold-start TDEE using Mifflin-St Jeor × activity multiplier."""
-    sex = user.get("sex", "")
-    height = _get_user_height_inches(user)
-    age = _get_user_age(user)
-    activity = user.get("activity_level", "moderately_active")
-    multiplier = ACTIVITY_MULTIPLIERS.get(activity, 1.55)
+def compute_cold_start_tdee(user: dict, weight_lbs: float) -> tuple[float, float]:
+    """Cold-start TDEE using Mifflin-St Jeor * activity multiplier.
 
-    bmr = compute_bmr(sex, weight_lbs, height, age)
-    return bmr * multiplier
+    Returns (tdee, bmr).
+    """
+    sex = user.get("sex", "")
+    height_in = _get_user_height_inches(user)
+    height_cm = inches_to_cm(height_in) if height_in else None
+    age = _get_user_age(user)
+    weight_kg = lbs_to_kg(weight_lbs)
+    activity = user.get("activity_level", "moderately_active")
+
+    bmr = compute_bmr(sex, weight_kg, height_cm, age)
+    tdee = compute_tdee(bmr, activity)
+    return tdee, bmr
 
 
 def compute_adaptive_tdee(user_id: int, days: int = 28) -> float | None:
@@ -142,55 +287,58 @@ def compute_targets(user_id: int) -> dict:
     if not current_weight:
         return _default_targets()
 
+    sex = user.get("sex", "")
+    weight_kg = lbs_to_kg(current_weight)
+
     # Try adaptive TDEE first, fall back to cold-start
     adaptive = compute_adaptive_tdee(user_id)
     if adaptive:
         tdee = adaptive
+        bmr_val = compute_bmr(
+            sex,
+            weight_kg,
+            inches_to_cm(_get_user_height_inches(user)) if _get_user_height_inches(user) else None,
+            _get_user_age(user),
+        )
         method = "adaptive"
     else:
-        tdee = compute_cold_start_tdee(user, current_weight)
+        tdee, bmr_val = compute_cold_start_tdee(user, current_weight)
         method = "mifflin_st_jeor"
 
     # Determine goal type from active goal or diet plan
     goal_type = _resolve_goal_type(user_id)
-    adjustment = GOAL_ADJUSTMENTS.get(goal_type, 0)
-    calorie_target = round(tdee + adjustment)
+    calorie_target = round(apply_goal(tdee, goal_type))
+    goal_delta = GOAL_ADJUSTMENTS.get(goal_type, 0)
 
-    # Protein: ~1g per lb of target weight (or current weight if no target)
-    goal = db.get_active_goal(user_id)
-    target_weight = goal.get("target_weight") if goal and goal.get("target_weight") else current_weight
-    protein_target = round(min(target_weight, current_weight * 1.2))
+    # Safety floor
+    calorie_target, floor_applied = apply_safety_floor(calorie_target, sex)
+    calorie_target = int(calorie_target)
 
-    # Fat: 25% of calories
-    fat_cals = calorie_target * 0.25
-    fat_target = round(fat_cals / 9)
+    # Round calories to nearest 5 for display cleanliness
+    calorie_target = round(calorie_target / 5) * 5
 
-    # Carbs: remainder
-    protein_cals = protein_target * 4
-    carbs_cals = calorie_target - protein_cals - fat_cals
-    carbs_target = max(round(carbs_cals / 4), 50)
+    # Get macro preset from user profile (if any)
+    macro_preset = user.get("macro_preset")
 
-    # Fiber: 14g per 1000 cal
-    fiber_target = round(calorie_target * 14 / 1000)
-
-    # Sugar: ~10% of calories from sugar (WHO recommendation)
-    sugar_target = round(calorie_target * 0.10 / 4)
-
-    # Sodium: FDA daily limit 2300 mg
-    sodium_target = 2300
+    # Derive macros
+    macros = derive_macro_targets(calorie_target, weight_kg, sex, goal_type, macro_preset)
 
     return {
-        "tdee": round(tdee),
+        "tdee": round(tdee / 5) * 5,
+        "bmr": round(bmr_val / 5) * 5,
         "goal_type": goal_type,
+        "goal_delta": goal_delta,
         "calories": calorie_target,
-        "protein": protein_target,
-        "carbs": carbs_target,
-        "fat": fat_target,
-        "fiber": fiber_target,
-        "sugar": sugar_target,
-        "sodium": sodium_target,
+        "protein": macros["protein"],
+        "carbs": macros["carbs"],
+        "fat": macros["fat"],
+        "fiber": macros["fiber"],
+        "sugar": macros["sugar"],
+        "sodium": macros["sodium"],
+        "water_ml": macros["water_ml"],
         "method": method,
         "weight_used": current_weight,
+        "floor_applied": floor_applied,
     }
 
 
@@ -218,7 +366,9 @@ def _resolve_goal_type(user_id: int) -> str:
 def _default_targets() -> dict:
     return {
         "tdee": 2200,
+        "bmr": 1700,
         "goal_type": "maintain",
+        "goal_delta": 0,
         "calories": 2200,
         "protein": 140,
         "carbs": 220,
@@ -226,8 +376,10 @@ def _default_targets() -> dict:
         "fiber": 30,
         "sugar": 55,
         "sodium": 2300,
+        "water_ml": 2800,
         "method": "default",
         "weight_used": None,
+        "floor_applied": False,
     }
 
 

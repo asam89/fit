@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 17
 
 SCHEMA_SQL = """
 -- users
@@ -940,6 +940,55 @@ def run_migrations() -> None:
                     pass
             conn.execute("INSERT INTO schema_version (version) VALUES (16)")
             conn.commit()
+
+        if current < 17:
+            # Add missing columns to nutrition_targets
+            for col_name, col_type in [
+                ("sugar_target", "INTEGER DEFAULT 55"),
+                ("sodium_target", "INTEGER DEFAULT 2300"),
+                ("water_target", "INTEGER DEFAULT 2800"),
+                ("bmr_estimate", "INTEGER"),
+                ("goal_delta", "INTEGER DEFAULT 0"),
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE nutrition_targets ADD COLUMN {col_name} {col_type}")
+                except sqlite3.OperationalError:
+                    pass
+            # Add sat_fat and water_ml to meals
+            for col_name, col_type in [
+                ("total_sat_fat", "REAL DEFAULT 0"),
+                ("total_water_ml", "REAL DEFAULT 0"),
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE meals ADD COLUMN {col_name} {col_type}")
+                except sqlite3.OperationalError:
+                    pass
+            # Add sat_fat and water_ml to meal_items
+            for col_name, col_type in [
+                ("sat_fat", "REAL DEFAULT 0"),
+                ("water_ml", "REAL DEFAULT 0"),
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE meal_items ADD COLUMN {col_name} {col_type}")
+                except sqlite3.OperationalError:
+                    pass
+            # Add sat_fat and water_ml to foods
+            for col_name, col_type in [
+                ("sat_fat", "REAL DEFAULT 0"),
+                ("water_ml", "REAL DEFAULT 0"),
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE foods ADD COLUMN {col_name} {col_type}")
+                except sqlite3.OperationalError:
+                    pass
+            # Add macro_preset to users
+            try:
+                conn.execute("ALTER TABLE users ADD COLUMN macro_preset TEXT")
+            except sqlite3.OperationalError:
+                pass
+            conn.execute("INSERT INTO schema_version (version) VALUES (17)")
+            conn.commit()
+
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
         init_db()
@@ -1172,7 +1221,9 @@ def get_today_totals(user_id: int, date_str: str, *, utc_range: tuple[str, str] 
                      COALESCE(SUM(total_fat), 0) as fat,
                      COALESCE(SUM(total_fiber), 0) as fiber,
                      COALESCE(SUM(total_sugar), 0) as sugar,
-                     COALESCE(SUM(total_sodium), 0) as sodium
+                     COALESCE(SUM(total_sodium), 0) as sodium,
+                     COALESCE(SUM(total_sat_fat), 0) as sat_fat,
+                     COALESCE(SUM(total_water_ml), 0) as water_ml
                    FROM meals
                    WHERE user_id = ? AND logged_at >= ? AND logged_at < ?""",
                 (user_id, utc_range[0], utc_range[1]),
@@ -1186,7 +1237,9 @@ def get_today_totals(user_id: int, date_str: str, *, utc_range: tuple[str, str] 
                      COALESCE(SUM(total_fat), 0) as fat,
                      COALESCE(SUM(total_fiber), 0) as fiber,
                      COALESCE(SUM(total_sugar), 0) as sugar,
-                     COALESCE(SUM(total_sodium), 0) as sodium
+                     COALESCE(SUM(total_sodium), 0) as sodium,
+                     COALESCE(SUM(total_sat_fat), 0) as sat_fat,
+                     COALESCE(SUM(total_water_ml), 0) as water_ml
                    FROM meals
                    WHERE user_id = ? AND DATE(logged_at) = ?""",
                 (user_id, date_str),
@@ -2186,16 +2239,22 @@ def get_nutrition_targets(user_id: int) -> dict | None:
         r = dict(row)
         return {
             "tdee": r.get("tdee_estimate"),
+            "bmr": r.get("bmr_estimate"),
             "goal_type": r.get("goal_type", "maintain"),
+            "goal_delta": r.get("goal_delta", 0),
             "calories": r.get("calorie_target"),
             "protein": r.get("protein_target"),
             "carbs": r.get("carbs_target"),
             "fat": r.get("fat_target"),
             "fiber": r.get("fiber_target"),
+            "sugar": r.get("sugar_target"),
+            "sodium": r.get("sodium_target", 2300),
+            "water_ml": r.get("water_target"),
             "method": r.get("method", "default"),
             "eating_focus": r.get("eating_focus"),
             "computed_at": r.get("computed_at"),
             "weight_used": None,
+            "floor_applied": False,
         }
     finally:
         conn.close()
@@ -2206,31 +2265,43 @@ def upsert_nutrition_targets(user_id: int, targets: dict) -> None:
     try:
         conn.execute(
             """INSERT INTO nutrition_targets
-               (user_id, tdee_estimate, method, goal_type, calorie_target,
-                protein_target, carbs_target, fat_target, fiber_target, eating_focus, computation_inputs)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               (user_id, tdee_estimate, bmr_estimate, method, goal_type, goal_delta,
+                calorie_target, protein_target, carbs_target, fat_target, fiber_target,
+                sugar_target, sodium_target, water_target,
+                eating_focus, computation_inputs)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(user_id) DO UPDATE SET
                  tdee_estimate = excluded.tdee_estimate,
+                 bmr_estimate = excluded.bmr_estimate,
                  method = excluded.method,
                  goal_type = excluded.goal_type,
+                 goal_delta = excluded.goal_delta,
                  calorie_target = excluded.calorie_target,
                  protein_target = excluded.protein_target,
                  carbs_target = excluded.carbs_target,
                  fat_target = excluded.fat_target,
                  fiber_target = excluded.fiber_target,
+                 sugar_target = excluded.sugar_target,
+                 sodium_target = excluded.sodium_target,
+                 water_target = excluded.water_target,
                  eating_focus = excluded.eating_focus,
                  computation_inputs = excluded.computation_inputs,
                  computed_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')""",
             (
                 user_id,
                 targets.get("tdee"),
+                targets.get("bmr"),
                 targets.get("method", "default"),
                 targets.get("goal_type", "maintain"),
+                targets.get("goal_delta", 0),
                 targets.get("calories", 2200),
                 targets.get("protein", 140),
                 targets.get("carbs", 220),
                 targets.get("fat", 60),
                 targets.get("fiber", 30),
+                targets.get("sugar", 55),
+                targets.get("sodium", 2300),
+                targets.get("water_ml", 2800),
                 targets.get("eating_focus"),
                 json.dumps({"weight_used": targets.get("weight_used")}),
             ),
