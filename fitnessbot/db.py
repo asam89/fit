@@ -1160,22 +1160,37 @@ def insert_meal_item(
         conn.close()
 
 
-def get_today_totals(user_id: int, date_str: str) -> dict:
+def get_today_totals(user_id: int, date_str: str, *, utc_range: tuple[str, str] | None = None) -> dict:
     conn = get_connection()
     try:
-        row = conn.execute(
-            """SELECT
-                 COALESCE(SUM(total_calories), 0) as calories,
-                 COALESCE(SUM(total_protein), 0) as protein,
-                 COALESCE(SUM(total_carbs), 0) as carbs,
-                 COALESCE(SUM(total_fat), 0) as fat,
-                 COALESCE(SUM(total_fiber), 0) as fiber,
-                 COALESCE(SUM(total_sugar), 0) as sugar,
-                 COALESCE(SUM(total_sodium), 0) as sodium
-               FROM meals
-               WHERE user_id = ? AND DATE(logged_at) = ?""",
-            (user_id, date_str),
-        ).fetchone()
+        if utc_range:
+            row = conn.execute(
+                """SELECT
+                     COALESCE(SUM(total_calories), 0) as calories,
+                     COALESCE(SUM(total_protein), 0) as protein,
+                     COALESCE(SUM(total_carbs), 0) as carbs,
+                     COALESCE(SUM(total_fat), 0) as fat,
+                     COALESCE(SUM(total_fiber), 0) as fiber,
+                     COALESCE(SUM(total_sugar), 0) as sugar,
+                     COALESCE(SUM(total_sodium), 0) as sodium
+                   FROM meals
+                   WHERE user_id = ? AND logged_at >= ? AND logged_at < ?""",
+                (user_id, utc_range[0], utc_range[1]),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                """SELECT
+                     COALESCE(SUM(total_calories), 0) as calories,
+                     COALESCE(SUM(total_protein), 0) as protein,
+                     COALESCE(SUM(total_carbs), 0) as carbs,
+                     COALESCE(SUM(total_fat), 0) as fat,
+                     COALESCE(SUM(total_fiber), 0) as fiber,
+                     COALESCE(SUM(total_sugar), 0) as sugar,
+                     COALESCE(SUM(total_sodium), 0) as sodium
+                   FROM meals
+                   WHERE user_id = ? AND DATE(logged_at) = ?""",
+                (user_id, date_str),
+            ).fetchone()
         return dict(row)
     finally:
         conn.close()
@@ -1210,47 +1225,77 @@ def get_meal_items(meal_id: int) -> list[dict]:
         conn.close()
 
 
-def get_meals_by_date(user_id: int, date_str: str) -> list[dict]:
+def get_meals_by_date(user_id: int, date_str: str, *, utc_range: tuple[str, str] | None = None) -> list[dict]:
     """Get all meals for a specific date (YYYY-MM-DD)."""
     conn = get_connection()
     try:
-        rows = conn.execute(
-            """SELECT * FROM meals
-               WHERE user_id = ? AND DATE(logged_at) = ?
-               ORDER BY logged_at DESC""",
-            (user_id, date_str),
-        ).fetchall()
+        if utc_range:
+            rows = conn.execute(
+                """SELECT * FROM meals
+                   WHERE user_id = ? AND logged_at >= ? AND logged_at < ?
+                   ORDER BY logged_at DESC""",
+                (user_id, utc_range[0], utc_range[1]),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT * FROM meals
+                   WHERE user_id = ? AND DATE(logged_at) = ?
+                   ORDER BY logged_at DESC""",
+                (user_id, date_str),
+            ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
-def get_meals_date_range(user_id: int, start_date: str, end_date: str) -> list[dict]:
+def get_meals_date_range(user_id: int, start_date: str, end_date: str, *, utc_range: tuple[str, str] | None = None) -> list[dict]:
     """Get all meals between start_date and end_date (inclusive, YYYY-MM-DD)."""
     conn = get_connection()
     try:
-        rows = conn.execute(
-            """SELECT * FROM meals
-               WHERE user_id = ? AND DATE(logged_at) BETWEEN ? AND ?
-               ORDER BY logged_at DESC""",
-            (user_id, start_date, end_date),
-        ).fetchall()
+        if utc_range:
+            rows = conn.execute(
+                """SELECT * FROM meals
+                   WHERE user_id = ? AND logged_at >= ? AND logged_at < ?
+                   ORDER BY logged_at DESC""",
+                (user_id, utc_range[0], utc_range[1]),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT * FROM meals
+                   WHERE user_id = ? AND DATE(logged_at) BETWEEN ? AND ?
+                   ORDER BY logged_at DESC""",
+                (user_id, start_date, end_date),
+            ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
-def get_meal_dates_with_counts(user_id: int, limit: int = 30) -> list[dict]:
+def get_meal_dates_with_counts(user_id: int, limit: int = 30, *, utc_offset_hours: float | None = None) -> list[dict]:
     """Get distinct dates that have meals, with counts, most recent first."""
     conn = get_connection()
     try:
-        rows = conn.execute(
-            """SELECT DATE(logged_at) as date, COUNT(*) as count, SUM(total_calories) as total_cal
-               FROM meals WHERE user_id = ?
-               GROUP BY DATE(logged_at)
-               ORDER BY date DESC LIMIT ?""",
-            (user_id, limit),
-        ).fetchall()
+        if utc_offset_hours is not None:
+            sign = "+" if utc_offset_hours >= 0 else "-"
+            abs_h = abs(utc_offset_hours)
+            h = int(abs_h)
+            m = int((abs_h - h) * 60)
+            offset_str = f"{sign}{h:02d}:{m:02d}"
+            rows = conn.execute(
+                f"""SELECT DATE(logged_at, '{offset_str}') as date, COUNT(*) as count, SUM(total_calories) as total_cal
+                   FROM meals WHERE user_id = ?
+                   GROUP BY DATE(logged_at, '{offset_str}')
+                   ORDER BY date DESC LIMIT ?""",
+                (user_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT DATE(logged_at) as date, COUNT(*) as count, SUM(total_calories) as total_cal
+                   FROM meals WHERE user_id = ?
+                   GROUP BY DATE(logged_at)
+                   ORDER BY date DESC LIMIT ?""",
+                (user_id, limit),
+            ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
@@ -1517,11 +1562,12 @@ def get_all_users() -> list[dict]:
 def get_user_activity_stats(user_id: int) -> dict:
     conn = get_connection()
     try:
-        from fitnessbot.tz import user_today
+        from fitnessbot.tz import user_today, day_utc_range
         today = user_today(user_id)
+        urange = day_utc_range(today, user_id)
         meals_today = conn.execute(
-            "SELECT COUNT(*) as c FROM meals WHERE user_id = ? AND DATE(logged_at) = ?",
-            (user_id, today),
+            "SELECT COUNT(*) as c FROM meals WHERE user_id = ? AND logged_at >= ? AND logged_at < ?",
+            (user_id, urange[0], urange[1]),
         ).fetchone()["c"]
         meals_total = conn.execute(
             "SELECT COUNT(*) as c FROM meals WHERE user_id = ?", (user_id,)
@@ -1789,47 +1835,85 @@ def get_weight_trend_range(user_id: int, days: int = 30) -> list[dict]:
         conn.close()
 
 
-def get_calorie_history(user_id: int, days: int = 30) -> list[dict]:
+def get_calorie_history(user_id: int, days: int = 30, *, utc_offset_hours: float | None = None) -> list[dict]:
     conn = get_connection()
     try:
-        rows = conn.execute(
-            """SELECT DATE(logged_at) as date,
-                      SUM(total_calories) as calories,
-                      SUM(total_protein) as protein
-               FROM meals WHERE user_id = ?
-               AND DATE(logged_at) >= date('now', ?)
-               GROUP BY DATE(logged_at)
-               ORDER BY date ASC""",
-            (user_id, f"-{days} days"),
-        ).fetchall()
+        if utc_offset_hours is not None:
+            sign = "+" if utc_offset_hours >= 0 else "-"
+            abs_h = abs(utc_offset_hours)
+            h = int(abs_h)
+            m = int((abs_h - h) * 60)
+            offset_str = f"{sign}{h:02d}:{m:02d}"
+            rows = conn.execute(
+                f"""SELECT DATE(logged_at, '{offset_str}') as date,
+                          SUM(total_calories) as calories,
+                          SUM(total_protein) as protein
+                   FROM meals WHERE user_id = ?
+                   AND DATE(logged_at, '{offset_str}') >= date('now', '{offset_str}', ?)
+                   GROUP BY DATE(logged_at, '{offset_str}')
+                   ORDER BY date ASC""",
+                (user_id, f"-{days} days"),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT DATE(logged_at) as date,
+                          SUM(total_calories) as calories,
+                          SUM(total_protein) as protein
+                   FROM meals WHERE user_id = ?
+                   AND DATE(logged_at) >= date('now', ?)
+                   GROUP BY DATE(logged_at)
+                   ORDER BY date ASC""",
+                (user_id, f"-{days} days"),
+            ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
-def get_logging_heatmap(user_id: int, days: int = 30) -> list[dict]:
+def get_logging_heatmap(user_id: int, days: int = 30, *, utc_offset_hours: float | None = None) -> list[dict]:
     conn = get_connection()
     try:
-        rows = conn.execute(
-            """SELECT DATE(logged_at) as date, COUNT(*) as count
-               FROM meals WHERE user_id = ?
-               AND DATE(logged_at) >= date('now', ? || ' days')
-               GROUP BY DATE(logged_at)
-               ORDER BY date ASC""",
-            (user_id, str(-days)),
-        ).fetchall()
+        if utc_offset_hours is not None:
+            sign = "+" if utc_offset_hours >= 0 else "-"
+            abs_h = abs(utc_offset_hours)
+            h = int(abs_h)
+            m = int((abs_h - h) * 60)
+            offset_str = f"{sign}{h:02d}:{m:02d}"
+            rows = conn.execute(
+                f"""SELECT DATE(logged_at, '{offset_str}') as date, COUNT(*) as count
+                   FROM meals WHERE user_id = ?
+                   AND DATE(logged_at, '{offset_str}') >= date('now', '{offset_str}', ? || ' days')
+                   GROUP BY DATE(logged_at, '{offset_str}')
+                   ORDER BY date ASC""",
+                (user_id, str(-days)),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT DATE(logged_at) as date, COUNT(*) as count
+                   FROM meals WHERE user_id = ?
+                   AND DATE(logged_at) >= date('now', ? || ' days')
+                   GROUP BY DATE(logged_at)
+                   ORDER BY date ASC""",
+                (user_id, str(-days)),
+            ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
-def get_meal_count_today(user_id: int, date_str: str) -> int:
+def get_meal_count_today(user_id: int, date_str: str, *, utc_range: tuple[str, str] | None = None) -> int:
     conn = get_connection()
     try:
-        row = conn.execute(
-            "SELECT COUNT(*) as c FROM meals WHERE user_id = ? AND DATE(logged_at) = ?",
-            (user_id, date_str),
-        ).fetchone()
+        if utc_range:
+            row = conn.execute(
+                "SELECT COUNT(*) as c FROM meals WHERE user_id = ? AND logged_at >= ? AND logged_at < ?",
+                (user_id, utc_range[0], utc_range[1]),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) as c FROM meals WHERE user_id = ? AND DATE(logged_at) = ?",
+                (user_id, date_str),
+            ).fetchone()
         return row["c"]
     finally:
         conn.close()
@@ -1946,10 +2030,12 @@ def get_platform_stats() -> dict:
         ).fetchone()["c"]
         meals_total = conn.execute("SELECT COUNT(*) as c FROM meals").fetchone()["c"]
         llm_total = conn.execute("SELECT COUNT(*) as c FROM llm_analysis").fetchone()["c"]
-        from fitnessbot.tz import user_today
+        from fitnessbot.tz import user_today, day_utc_range
         today = user_today()
+        urange = day_utc_range(today)
         meals_today = conn.execute(
-            "SELECT COUNT(*) as c FROM meals WHERE DATE(logged_at) = ?", (today,)
+            "SELECT COUNT(*) as c FROM meals WHERE logged_at >= ? AND logged_at < ?",
+            (urange[0], urange[1]),
         ).fetchone()["c"]
         return {
             "users_total": users_total,
@@ -2166,22 +2252,42 @@ def get_health_data_today(user_id: int, date_str: str, data_type: str) -> list[d
         conn.close()
 
 
-def get_macro_history(user_id: int, days: int = 7) -> list[dict]:
+def get_macro_history(user_id: int, days: int = 7, *, utc_offset_hours: float | None = None) -> list[dict]:
     conn = get_connection()
     try:
-        rows = conn.execute(
-            """SELECT DATE(logged_at) as date,
-                      SUM(total_calories) as calories,
-                      SUM(total_protein) as protein,
-                      SUM(total_carbs) as carbs,
-                      SUM(total_fat) as fat,
-                      COUNT(*) as meal_count
-               FROM meals WHERE user_id = ?
-               AND DATE(logged_at) >= date('now', ?)
-               GROUP BY DATE(logged_at)
-               ORDER BY date ASC""",
-            (user_id, f"-{days} days"),
-        ).fetchall()
+        if utc_offset_hours is not None:
+            sign = "+" if utc_offset_hours >= 0 else "-"
+            abs_h = abs(utc_offset_hours)
+            h = int(abs_h)
+            m = int((abs_h - h) * 60)
+            offset_str = f"{sign}{h:02d}:{m:02d}"
+            rows = conn.execute(
+                f"""SELECT DATE(logged_at, '{offset_str}') as date,
+                          SUM(total_calories) as calories,
+                          SUM(total_protein) as protein,
+                          SUM(total_carbs) as carbs,
+                          SUM(total_fat) as fat,
+                          COUNT(*) as meal_count
+                   FROM meals WHERE user_id = ?
+                   AND DATE(logged_at, '{offset_str}') >= date('now', '{offset_str}', ?)
+                   GROUP BY DATE(logged_at, '{offset_str}')
+                   ORDER BY date ASC""",
+                (user_id, f"-{days} days"),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT DATE(logged_at) as date,
+                          SUM(total_calories) as calories,
+                          SUM(total_protein) as protein,
+                          SUM(total_carbs) as carbs,
+                          SUM(total_fat) as fat,
+                          COUNT(*) as meal_count
+                   FROM meals WHERE user_id = ?
+                   AND DATE(logged_at) >= date('now', ?)
+                   GROUP BY DATE(logged_at)
+                   ORDER BY date ASC""",
+                (user_id, f"-{days} days"),
+            ).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()

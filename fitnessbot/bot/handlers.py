@@ -398,11 +398,13 @@ def _infer_meal_type(user_id: int | None = None) -> str:
 
 def _get_remaining_macros(user_id: int) -> str:
     from fitnessbot.nutrition import get_nutrition_targets
+    from fitnessbot.tz import day_utc_range
     today = user_today(user_id)
+    urange = day_utc_range(today, user_id)
     targets = get_nutrition_targets(user_id)
     if not targets:
         return ""
-    totals = db.get_today_totals(user_id, today)
+    totals = db.get_today_totals(user_id, today, utc_range=urange)
     rem_cal = targets["calories"] - totals.get("calories", 0)
     rem_pro = targets["protein"] - totals.get("protein", 0)
     rem_carbs = targets["carbs"] - totals.get("carbs", 0)

@@ -84,10 +84,12 @@ def build_morning_brief(user_id: int) -> str:
 
 
 def build_midday_check(user_id: int) -> str:
+    from fitnessbot.tz import day_utc_range
     today = user_today(user_id)
-    totals = db.get_today_totals(user_id, today)
+    urange = day_utc_range(today, user_id)
+    totals = db.get_today_totals(user_id, today, utc_range=urange)
     targets = _get_user_targets(user_id)
-    meal_count = db.get_meal_count_today(user_id, today)
+    meal_count = db.get_meal_count_today(user_id, today, utc_range=urange)
 
     lines = ["*Midday check*", ""]
 
@@ -116,11 +118,13 @@ def build_midday_check(user_id: int) -> str:
 
 
 def build_evening_wrap(user_id: int) -> str:
+    from fitnessbot.tz import day_utc_range
     today = user_today(user_id)
-    totals = db.get_today_totals(user_id, today)
+    urange = day_utc_range(today, user_id)
+    totals = db.get_today_totals(user_id, today, utc_range=urange)
     targets = _get_user_targets(user_id)
     weight = get_weight_summary(user_id)
-    meal_count = db.get_meal_count_today(user_id, today)
+    meal_count = db.get_meal_count_today(user_id, today, utc_range=urange)
 
     lines = ["*Evening wrap*", ""]
 
@@ -175,7 +179,8 @@ def build_weekly_rollup(user_id: int) -> str:
     week_start = (today - timedelta(days=7)).strftime("%Y-%m-%d")
     week_end = today.strftime("%Y-%m-%d")
 
-    cal_hist = db.get_calorie_history(user_id, 7)
+    from fitnessbot.tz import utc_offset_hours as _utc_off
+    cal_hist = db.get_calorie_history(user_id, 7, utc_offset_hours=_utc_off(user_id))
     avg_cal = sum(d["calories"] for d in cal_hist) / max(len(cal_hist), 1) if cal_hist else 0
     targets = _get_user_targets(user_id)
     weight = get_weight_summary(user_id)

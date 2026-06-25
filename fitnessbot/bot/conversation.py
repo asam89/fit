@@ -454,19 +454,22 @@ def _act_readiness_check(intent: dict, user_id: int) -> dict:
 def _act_query(user_id: int, question: str = "") -> dict:
     from fitnessbot.nutrition import get_nutrition_targets
     from fitnessbot import training_plan
+    from fitnessbot.tz import day_utc_range, utc_offset_hours as _utc_off
 
     today = user_today(user_id)
-    totals = db.get_today_totals(user_id, today)
+    urange = day_utc_range(today, user_id)
+    tz_off = _utc_off(user_id)
+    totals = db.get_today_totals(user_id, today, utc_range=urange)
     targets = get_nutrition_targets(user_id)
     weight = get_weight_summary(user_id)
-    meal_count = db.get_meal_count_today(user_id, today)
+    meal_count = db.get_meal_count_today(user_id, today, utc_range=urange)
 
     lower_q = question.lower()
     is_week = any(w in lower_q for w in ("week", "7 day", "last 7", "this week", "past week"))
     is_month = any(w in lower_q for w in ("month", "30 day", "last 30", "this month", "past month"))
     lookback = 30 if is_month else 7
 
-    macro_hist = db.get_macro_history(user_id, lookback)
+    macro_hist = db.get_macro_history(user_id, lookback, utc_offset_hours=tz_off)
     sleep_hist = db.get_sleep_history(user_id, lookback)
     workout_hist = db.get_workout_history(user_id, lookback)
     weight_hist = db.get_weight_history(user_id, limit=lookback)
@@ -729,11 +732,13 @@ def _deterministic_query_response(act_result: dict) -> str:
 
 def _build_context_digest(user_id: int, act_results: list[dict]) -> str:
     from fitnessbot.nutrition import get_nutrition_targets
+    from fitnessbot.tz import day_utc_range
     today = user_today(user_id)
-    totals = db.get_today_totals(user_id, today)
+    urange = day_utc_range(today, user_id)
+    totals = db.get_today_totals(user_id, today, utc_range=urange)
     targets = get_nutrition_targets(user_id)
     weight = get_weight_summary(user_id)
-    meal_count = db.get_meal_count_today(user_id, today)
+    meal_count = db.get_meal_count_today(user_id, today, utc_range=urange)
 
     remaining_cal = targets["calories"] - totals["calories"]
     remaining_pro = targets["protein"] - totals["protein"]
@@ -769,8 +774,10 @@ def _build_context_digest(user_id: int, act_results: list[dict]) -> str:
 def _deterministic_confirmation(act_results: list[dict], user_id: int) -> str:
     """Build a fallback confirmation without LLM."""
     from fitnessbot.nutrition import get_nutrition_targets
+    from fitnessbot.tz import day_utc_range
     today = user_today(user_id)
-    totals = db.get_today_totals(user_id, today)
+    urange = day_utc_range(today, user_id)
+    totals = db.get_today_totals(user_id, today, utc_range=urange)
     targets_data = get_nutrition_targets(user_id)
     target_pro = targets_data["protein"]
 
