@@ -15,6 +15,7 @@ from fitnessbot.event_coaching import (
 )
 from fitnessbot.metrics import log_weight, get_weight_summary
 from fitnessbot.inference.base import InferenceError
+from fitnessbot.tz import user_today, user_now
 
 logger = logging.getLogger(__name__)
 
@@ -454,7 +455,7 @@ def _act_query(user_id: int, question: str = "") -> dict:
     from fitnessbot.nutrition import get_nutrition_targets
     from fitnessbot import training_plan
 
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = user_today(user_id)
     totals = db.get_today_totals(user_id, today)
     targets = get_nutrition_targets(user_id)
     weight = get_weight_summary(user_id)
@@ -470,7 +471,7 @@ def _act_query(user_id: int, question: str = "") -> dict:
     workout_hist = db.get_workout_history(user_id, lookback)
     weight_hist = db.get_weight_history(user_id, limit=lookback)
 
-    ws = training_plan._monday_of_week(datetime.now(timezone.utc).date())
+    ws = training_plan._monday_of_week(user_now(user_id).date())
     plan_items = training_plan.get_plan_items(user_id, ws)
     adherence = training_plan.compute_adherence(plan_items) if plan_items else None
 
@@ -728,7 +729,7 @@ def _deterministic_query_response(act_result: dict) -> str:
 
 def _build_context_digest(user_id: int, act_results: list[dict]) -> str:
     from fitnessbot.nutrition import get_nutrition_targets
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = user_today(user_id)
     totals = db.get_today_totals(user_id, today)
     targets = get_nutrition_targets(user_id)
     weight = get_weight_summary(user_id)
@@ -768,7 +769,7 @@ def _build_context_digest(user_id: int, act_results: list[dict]) -> str:
 def _deterministic_confirmation(act_results: list[dict], user_id: int) -> str:
     """Build a fallback confirmation without LLM."""
     from fitnessbot.nutrition import get_nutrition_targets
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = user_today(user_id)
     totals = db.get_today_totals(user_id, today)
     targets_data = get_nutrition_targets(user_id)
     target_pro = targets_data["protein"]

@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 
 from fitnessbot import db
 from fitnessbot.metrics import get_weight_summary
+from fitnessbot.tz import user_today, user_date_fmt
 
 logger = logging.getLogger(__name__)
 
@@ -300,7 +301,7 @@ def _deterministic_focus(targets: dict, totals: dict) -> str:
 
 def build_today_summary(user_id: int) -> dict:
     """Build a rich today summary for the dashboard."""
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = user_today(user_id)
     totals = db.get_today_totals(user_id, today)
     targets = get_nutrition_targets(user_id)
     weight = get_weight_summary(user_id)
@@ -311,7 +312,7 @@ def build_today_summary(user_id: int) -> dict:
     workout_data = db.get_health_data_today(user_id, today, "workout")
 
     # Build prose summary
-    day_name = datetime.now(timezone.utc).strftime("%A")
+    day_name = user_date_fmt(user_id, fmt="%A")
     parts = []
 
     if totals["calories"] == 0 and meal_count == 0:

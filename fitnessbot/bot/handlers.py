@@ -22,6 +22,7 @@ from fitnessbot.bot.conversation import process_message
 from fitnessbot.config import Config
 from fitnessbot.metrics import get_weight_summary
 from fitnessbot.voice import download_voice_file, transcribe_audio
+from fitnessbot.tz import user_today, user_hour
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,7 @@ def register_handlers(app: Application, user_id: int) -> None:
     async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = training_plan.format_plan_telegram(user_id)
         today_items = training_plan.get_items_for_date(
-            user_id, datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            user_id, user_today(user_id)
         )
         incomplete = [i for i in today_items if i["status"] == "planned" and i["activity_type"] != "rest"]
         if incomplete:
@@ -142,7 +143,7 @@ def register_handlers(app: Application, user_id: int) -> None:
         if result:
             title = result.get("title", "activity")
             today_items = training_plan.get_items_for_date(
-                user_id, datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                user_id, user_today(user_id)
             )
             done_count = sum(1 for i in today_items if i["status"] == "completed")
             total_count = sum(1 for i in today_items if i["activity_type"] != "rest")
@@ -288,7 +289,7 @@ def register_handlers(app: Application, user_id: int) -> None:
             except Exception:
                 logger.warning("Failed to save meal photo to disk", exc_info=True)
 
-            inferred_type = _infer_meal_type()
+            inferred_type = _infer_meal_type(user_id)
             meal_id = db.insert_meal(
                 user_id=user_id,
                 raw_text=f"[photo] {description}",
@@ -380,15 +381,8 @@ def _days_until(date_str: str) -> int:
         return -1
 
 
-def _infer_meal_type() -> str:
-    import pytz
-    from fitnessbot.config import Config
-    try:
-        tz = pytz.timezone(Config.TIMEZONE)
-        now = datetime.now(tz)
-    except Exception:
-        now = datetime.now(timezone.utc)
-    h = now.hour
+def _infer_meal_type(user_id: int | None = None) -> str:
+    h = user_hour(user_id) if user_id else datetime.now(timezone.utc).hour
     if h < 6:
         return "midnight snack"
     if h < 11:
@@ -404,7 +398,7 @@ def _infer_meal_type() -> str:
 
 def _get_remaining_macros(user_id: int) -> str:
     from fitnessbot.nutrition import get_nutrition_targets
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today = user_today(user_id)
     targets = get_nutrition_targets(user_id)
     if not targets:
         return ""

@@ -16,6 +16,7 @@ from fitnessbot.metrics import get_weight_summary
 from fitnessbot.nutrition import get_nutrition_targets, build_today_summary, build_month_summary
 from fitnessbot.web.auth import get_current_user
 from fitnessbot.inference.base import InferenceError
+from fitnessbot.tz import user_today, user_date_fmt, user_hour, user_now
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ def _build_gaps(user_id: int, today: str, totals: dict, weight: dict, connection
             "icon": "meal",
         })
     elif db.get_meal_count_today(user_id, today) < 2:
-        hour = datetime.now(timezone.utc).hour
+        hour = user_hour(user_id)
         if hour >= 18:
             gaps.append({
                 "text": "Only one meal logged. Missed dinner?",
@@ -74,7 +75,8 @@ async def dashboard_home(request: Request):
         return RedirectResponse("/login", status_code=303)
 
     uid = user["user_id"]
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    tz_str = user.get("timezone", "America/Toronto")
+    today = user_today(uid, tz_str=tz_str)
     totals = db.get_today_totals(uid, today)
     recent_meals = db.get_recent_meals(uid, limit=5)
     today_meals = db.get_meals_by_date(uid, today)
@@ -106,7 +108,7 @@ async def dashboard_home(request: Request):
     remaining_cal = targets["calories"] - totals["calories"]
     gaps = _build_gaps(uid, today, totals, weight, connection)
 
-    today_date = datetime.now(timezone.utc).strftime("%A, %b %d")
+    today_date = user_date_fmt(uid, tz_str=tz_str)
 
     from fitnessbot.inference.factory import get_user_credential
     cred = get_user_credential(uid)
@@ -152,6 +154,7 @@ async def dashboard_home(request: Request):
             "calorie_history": calorie_history,
             "heatmap_data": heatmap_data,
             "has_ai": has_ai,
+            "user_tz": tz_str,
         },
     )
 
@@ -301,7 +304,8 @@ async def intake_next(request: Request):
         return JSONResponse({"error": "Not authenticated"}, status_code=401)
 
     uid = user["user_id"]
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    tz_str = user.get("timezone", "America/Toronto")
+    today = user_today(uid, tz_str=tz_str)
     present = _get_present_fields(uid, today)
 
     try:
@@ -311,7 +315,7 @@ async def intake_next(request: Request):
         gaps_text = ", ".join(f for f in ["weight", "sleep", "resting_hr", "mood", "energy", "workout", "hydration"] if f not in present)
         result = infer(
             system=INTAKE_SYSTEM,
-            messages=[{"role": "user", "content": f"Missing data today: {gaps_text or 'none'}. Today's date: {today}. User timezone: {user.get('timezone', 'America/Toronto')}"}],
+            messages=[{"role": "user", "content": f"Missing data today: {gaps_text or 'none'}. Today's date: {today}. User timezone: {tz_str}"}],
             max_tokens=300,
             json_mode=True,
         )
@@ -498,7 +502,7 @@ async def food_diary(request: Request):
     uid = user["user_id"]
     date_str = request.query_params.get("date", "")
     if not date_str:
-        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        date_str = user_today(uid)
     meals = db.get_meals_by_date(uid, date_str)
     meal_dates = db.get_meal_dates_with_counts(uid, limit=60)
     # Get items for each meal
@@ -524,7 +528,7 @@ async def api_meals_by_date(request: Request):
     uid = user["user_id"]
     date_str = request.query_params.get("date", "")
     if not date_str:
-        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        date_str = user_today(uid)
     meals = db.get_meals_by_date(uid, date_str)
     for meal in meals:
         meal["items"] = db.get_meal_items(meal["meal_id"])
@@ -609,3 +613,28 @@ async def api_update_meal_type(meal_id: int, body: MealTypeUpdate, request: Requ
     if not updated:
         return JSONResponse({"error": "Meal not found"}, status_code=404)
     return JSONResponse({"ok": True, "meal_type": body.meal_type.lower()})
+
+
+@router.post("/api/timezone")
+async def update_timezone(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+    data = await request.json()
+    tz_str = data.get("timezone", "").strip()
+    if not tz_str:
+        return JSONResponse({"error": "timezone required"}, status_code=400)
+    from zoneinfo import ZoneInfo
+    try:
+        ZoneInfo(tz_str)
+    except Exception:
+        return JSONResponse({"error": "Invalid timezone"}, status_code=400)
+    db.update_user(user["user_id"], timezone=tz_str)
+    now = user_now(tz_str=tz_str)
+    today = now.strftime("%Y-%m-%d")
+    return JSONResponse({
+        "ok": True,
+        "timezone": tz_str,
+        "local_time": now.strftime("%I:%M %p"),
+        "today": today,
+    })

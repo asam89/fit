@@ -32,6 +32,17 @@
   .meal-day{transition:opacity .15s ease}
   .meal-dot{transition:all .2s ease}
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+  .tz-toggle{position:relative;display:inline-flex;align-items:center;gap:4px;cursor:pointer}
+  .tz-clock{font-variant-numeric:tabular-nums;font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11px;color:#646B7A}
+  .tz-label{font-size:10px;color:#9aa1b0;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tz-dropdown{position:absolute;top:100%;right:0;margin-top:6px;background:#fff;border:1px solid #E6E8EE;border-radius:10px;box-shadow:0 8px 24px rgba(20,22,29,.12);padding:8px;z-index:50;min-width:220px;max-height:300px;overflow-y:auto;display:none}
+  .tz-dropdown.open{display:block}
+  .tz-dropdown input{width:100%;padding:6px 8px;border:1px solid #E6E8EE;border-radius:6px;font-size:12px;margin-bottom:6px;outline:none}
+  .tz-dropdown input:focus{border-color:#2D52F5}
+  .tz-option{padding:6px 8px;border-radius:6px;font-size:12px;cursor:pointer;color:#14161D;transition:background .1s}
+  .tz-option:hover{background:#F3F4F6}
+  .tz-option.active{background:#EEF0FF;color:#2D52F5;font-weight:500}
 </style>
 {% endblock %}
 {% block content %}
@@ -52,6 +63,15 @@
             Send to Telegram
           </button>
           <span class="text-xs text-faint font-mono">{{ today_date }}</span>
+          <div class="tz-toggle" id="tzToggle" onclick="toggleTzDropdown(event)">
+            <svg class="w-3 h-3 text-faint" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-width="2" d="M12 2a14.5 14.5 0 000 20M12 2a14.5 14.5 0 010 20M2 12h20"/></svg>
+            <span class="tz-clock" id="tzClock">--:-- --</span>
+            <span class="tz-label" id="tzLabel">{{ user_tz or 'America/Toronto' }}</span>
+            <div class="tz-dropdown" id="tzDropdown">
+              <input type="text" id="tzSearch" placeholder="Search timezone..." onclick="event.stopPropagation()">
+              <div id="tzOptions"></div>
+            </div>
+          </div>
         </div>
       </div>
       {% if today_summary and today_summary.eating_focus %}
@@ -1487,6 +1507,96 @@ document.querySelectorAll('[data-range]').forEach(btn=>{
   loadFriends();
   loadPending();
   loadNudges();
+})();
+</script>
+<script>
+(function(){
+  const COMMON_TZ = [
+    'America/Toronto','America/New_York','America/Chicago','America/Denver','America/Los_Angeles',
+    'America/Vancouver','America/Edmonton','America/Winnipeg','America/Halifax','America/St_Johns',
+    'America/Mexico_City','America/Bogota','America/Sao_Paulo','America/Argentina/Buenos_Aires',
+    'Europe/London','Europe/Paris','Europe/Berlin','Europe/Rome','Europe/Madrid','Europe/Amsterdam',
+    'Europe/Moscow','Europe/Istanbul','Europe/Athens','Europe/Warsaw','Europe/Lisbon',
+    'Asia/Dubai','Asia/Kolkata','Asia/Shanghai','Asia/Tokyo','Asia/Seoul','Asia/Singapore',
+    'Asia/Hong_Kong','Asia/Bangkok','Asia/Jakarta','Asia/Karachi','Asia/Dhaka',
+    'Australia/Sydney','Australia/Melbourne','Australia/Perth','Australia/Brisbane',
+    'Pacific/Auckland','Pacific/Honolulu','Pacific/Fiji',
+    'Africa/Cairo','Africa/Lagos','Africa/Johannesburg','Africa/Nairobi',
+    'UTC'
+  ];
+  let currentTz = '{{ user_tz or "America/Toronto" }}';
+
+  function shortLabel(tz){
+    try {
+      const now = new Date();
+      const fmt = new Intl.DateTimeFormat('en-US',{timeZone:tz,timeZoneName:'short'});
+      const parts = fmt.formatToParts(now);
+      const tzPart = parts.find(p=>p.type==='timeZoneName');
+      return tzPart ? tzPart.value : tz.split('/').pop().replace(/_/g,' ');
+    } catch(e){ return tz.split('/').pop().replace(/_/g,' '); }
+  }
+
+  function updateClock(){
+    try {
+      const now = new Date();
+      const time = now.toLocaleTimeString('en-US',{timeZone:currentTz,hour:'numeric',minute:'2-digit',hour12:true});
+      document.getElementById('tzClock').textContent = time;
+    } catch(e){}
+  }
+
+  function renderOptions(filter){
+    const container = document.getElementById('tzOptions');
+    const q = (filter||'').toLowerCase();
+    const filtered = COMMON_TZ.filter(tz => tz.toLowerCase().includes(q));
+    container.innerHTML = filtered.map(tz => {
+      const label = tz.replace(/_/g,' ');
+      const abbr = shortLabel(tz);
+      const isActive = tz === currentTz ? ' active' : '';
+      return `<div class="tz-option${isActive}" data-tz="${tz}" onclick="selectTz('${tz}',event)">${label} <span style="color:#9aa1b0;font-size:10px">${abbr}</span></div>`;
+    }).join('');
+  }
+
+  window.toggleTzDropdown = function(e){
+    e.stopPropagation();
+    const dd = document.getElementById('tzDropdown');
+    dd.classList.toggle('open');
+    if(dd.classList.contains('open')){
+      renderOptions('');
+      document.getElementById('tzSearch').value = '';
+      document.getElementById('tzSearch').focus();
+    }
+  };
+
+  window.selectTz = async function(tz, e){
+    e.stopPropagation();
+    const dd = document.getElementById('tzDropdown');
+    dd.classList.remove('open');
+    currentTz = tz;
+    document.getElementById('tzLabel').textContent = tz;
+    updateClock();
+    try {
+      const res = await fetch('/api/timezone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({timezone:tz})});
+      if(res.ok){
+        const data = await res.json();
+        if(data.today){
+          window.location.reload();
+        }
+      }
+    } catch(err){ console.error('Failed to update timezone', err); }
+  };
+
+  document.getElementById('tzSearch').addEventListener('input', function(){
+    renderOptions(this.value);
+  });
+
+  document.addEventListener('click', function(e){
+    if(!document.getElementById('tzToggle').contains(e.target)){
+      document.getElementById('tzDropdown').classList.remove('open');
+    }
+  });
+
+  updateClock();
+  setInterval(updateClock, 15000);
 })();
 </script>
 {% endblock %}
