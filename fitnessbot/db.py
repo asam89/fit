@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 
 SCHEMA_SQL = """
 -- users
@@ -196,6 +196,8 @@ CREATE TABLE IF NOT EXISTS body_composition (
     weight_unit TEXT NOT NULL DEFAULT 'lbs',
     body_fat_pct REAL,
     lean_mass REAL,
+    muscle_mass REAL,
+    muscle_mass_unit TEXT NOT NULL DEFAULT 'lbs',
     source TEXT NOT NULL DEFAULT 'manual'
 );
 
@@ -989,6 +991,19 @@ def run_migrations() -> None:
             conn.execute("INSERT INTO schema_version (version) VALUES (17)")
             conn.commit()
 
+        # --- Migration 18: add muscle_mass columns to body_composition ---
+        if current_version < 18:
+            for col_name, col_type in [
+                ("muscle_mass", "REAL"),
+                ("muscle_mass_unit", "TEXT NOT NULL DEFAULT 'lbs'"),
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE body_composition ADD COLUMN {col_name} {col_type}")
+                except sqlite3.OperationalError:
+                    pass
+            conn.execute("INSERT INTO schema_version (version) VALUES (18)")
+            conn.commit()
+
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
         init_db()
@@ -1411,19 +1426,21 @@ def update_meal_type(meal_id: int, user_id: int, meal_type: str) -> bool:
 
 def insert_body_composition(
     user_id: int,
-    weight: float,
+    weight: float | None = None,
     weight_unit: str = "lbs",
     body_fat_pct: float | None = None,
     lean_mass: float | None = None,
+    muscle_mass: float | None = None,
+    muscle_mass_unit: str = "lbs",
     source: str = "manual",
 ) -> int:
     conn = get_connection()
     try:
         cursor = conn.execute(
             """INSERT INTO body_composition
-               (user_id, weight, weight_unit, body_fat_pct, lean_mass, source)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (user_id, weight, weight_unit, body_fat_pct, lean_mass, source),
+               (user_id, weight, weight_unit, body_fat_pct, lean_mass, muscle_mass, muscle_mass_unit, source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, weight, weight_unit, body_fat_pct, lean_mass, muscle_mass, muscle_mass_unit, source),
         )
         conn.commit()
         return cursor.lastrowid
@@ -1437,6 +1454,36 @@ def get_weight_history(user_id: int, limit: int = 90) -> list[dict]:
         rows = conn.execute(
             """SELECT * FROM body_composition
                WHERE user_id = ?
+               ORDER BY measured_at DESC LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_latest_body_composition(user_id: int) -> dict | None:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            """SELECT body_fat_pct, muscle_mass, muscle_mass_unit, measured_at
+               FROM body_composition
+               WHERE user_id = ? AND (body_fat_pct IS NOT NULL OR muscle_mass IS NOT NULL)
+               ORDER BY measured_at DESC LIMIT 1""",
+            (user_id,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_body_composition_history(user_id: int, limit: int = 10) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT body_fat_pct, muscle_mass, muscle_mass_unit, measured_at
+               FROM body_composition
+               WHERE user_id = ? AND (body_fat_pct IS NOT NULL OR muscle_mass IS NOT NULL)
                ORDER BY measured_at DESC LIMIT ?""",
             (user_id, limit),
         ).fetchall()
