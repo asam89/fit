@@ -97,6 +97,8 @@ async def dashboard_home(request: Request):
     totals = db.get_today_totals(uid, today)
     recent_meals = _localize_meals(db.get_recent_meals(uid, limit=5), tz_str)
     today_meals = _localize_meals(db.get_meals_by_date(uid, today), tz_str)
+    for meal in today_meals:
+        meal["items"] = db.get_meal_items(meal["meal_id"])
     meal_dates = db.get_meal_dates_with_counts(uid, limit=7)
     weight = get_weight_summary(uid)
     connection = db.get_telegram_connection(uid)

@@ -485,15 +485,68 @@
         <div class="meal-day active" data-date="{{ meal_dates[0].date if meal_dates else '' }}">
           {% if today_meals %}
             {% for meal in today_meals %}
-            <div class="flex items-center gap-2 py-1.5 border-b border-gray-50 last:border-0">
-              {% if meal.photo_path %}
-              <img src="{{ meal.photo_path }}" alt="meal photo" class="w-10 h-10 rounded-md object-cover flex-shrink-0" loading="lazy">
-              {% endif %}
-              <div class="flex-1 min-w-0">
-                <p class="text-sm truncate">{{ meal.raw_text[:50] }}{% if meal.raw_text|length > 50 %}…{% endif %}</p>
-                <p class="text-[10px] text-faint">{{ meal.meal_type or 'meal' }} · {{ meal.logged_at[11:16] if meal.logged_at else '' }}</p>
+            <div class="meal-row border-b border-gray-50 last:border-0">
+              <div class="flex items-center gap-2 py-1.5 cursor-pointer hover:bg-gray-50/50 rounded transition-colors px-1 -mx-1" onclick="this.parentElement.querySelector('.meal-detail').classList.toggle('hidden')">
+                {% if meal.photo_path %}
+                <img src="{{ meal.photo_path }}" alt="meal photo" class="w-10 h-10 rounded-md object-cover flex-shrink-0" loading="lazy">
+                {% endif %}
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm truncate">{{ meal.raw_text[:50] }}{% if meal.raw_text|length > 50 %}…{% endif %}</p>
+                  <p class="text-[10px] text-faint">{{ meal.meal_type or 'meal' }} · {{ meal.logged_at[11:16] if meal.logged_at else '' }}</p>
+                </div>
+                <span class="text-xs font-mono font-medium ml-2 flex-shrink-0">{{ meal.total_calories|int }}</span>
+                <svg class="w-3.5 h-3.5 text-faint flex-shrink-0 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
               </div>
-              <span class="text-xs font-mono font-medium ml-2 flex-shrink-0">{{ meal.total_calories|int }}</span>
+              <div class="meal-detail hidden pb-2 pt-1 px-1">
+                {% if meal.photo_path %}
+                <img src="{{ meal.photo_path }}" alt="meal photo" class="w-full max-h-48 rounded-lg object-cover mb-2" loading="lazy">
+                {% endif %}
+                <div class="grid grid-cols-4 gap-1 mb-2">
+                  <div class="text-center p-1.5 bg-gray-50 rounded">
+                    <div class="text-[9px] text-faint uppercase">Cal</div>
+                    <div class="text-xs font-semibold">{{ meal.total_calories|int }}</div>
+                  </div>
+                  <div class="text-center p-1.5 bg-gray-50 rounded">
+                    <div class="text-[9px] text-faint uppercase">Protein</div>
+                    <div class="text-xs font-semibold">{{ meal.total_protein|int }}g</div>
+                  </div>
+                  <div class="text-center p-1.5 bg-gray-50 rounded">
+                    <div class="text-[9px] text-faint uppercase">Carbs</div>
+                    <div class="text-xs font-semibold">{{ meal.total_carbs|int }}g</div>
+                  </div>
+                  <div class="text-center p-1.5 bg-gray-50 rounded">
+                    <div class="text-[9px] text-faint uppercase">Fat</div>
+                    <div class="text-xs font-semibold">{{ meal.total_fat|int }}g</div>
+                  </div>
+                </div>
+                {% if meal.total_fiber or meal.total_sugar or meal.total_sodium %}
+                <div class="grid grid-cols-3 gap-1 mb-2">
+                  <div class="text-center p-1 bg-gray-50 rounded">
+                    <div class="text-[9px] text-faint uppercase">Fiber</div>
+                    <div class="text-[10px] font-medium">{{ meal.total_fiber|default(0)|int }}g</div>
+                  </div>
+                  <div class="text-center p-1 bg-gray-50 rounded">
+                    <div class="text-[9px] text-faint uppercase">Sugar</div>
+                    <div class="text-[10px] font-medium">{{ meal.total_sugar|default(0)|int }}g</div>
+                  </div>
+                  <div class="text-center p-1 bg-gray-50 rounded">
+                    <div class="text-[9px] text-faint uppercase">Sodium</div>
+                    <div class="text-[10px] font-medium">{{ meal.total_sodium|default(0)|int }}mg</div>
+                  </div>
+                </div>
+                {% endif %}
+                {% if meal['items'] %}
+                <div class="space-y-0.5">
+                  <div class="text-[9px] text-faint uppercase font-semibold mb-1">Items</div>
+                  {% for item in meal['items'] %}
+                  <div class="flex items-center justify-between text-[11px] py-0.5">
+                    <span class="text-muted truncate flex-1">{{ item.food_name or item.qty|string ~ ' ' ~ (item.unit or '') }}</span>
+                    <span class="text-faint font-mono ml-2 flex-shrink-0">{{ item.calories|int }}cal · {{ item.protein|int }}p · {{ item.carbs|int }}c · {{ item.fat|int }}f</span>
+                  </div>
+                  {% endfor %}
+                </div>
+                {% endif %}
+              </div>
             </div>
             {% endfor %}
           {% else %}
@@ -647,14 +700,49 @@ async function generateInvite(){
             data.meals.forEach(meal => {
               const text = (meal.raw_text||'').slice(0,50) + (meal.raw_text && meal.raw_text.length > 50 ? '\u2026' : '');
               const time = meal.logged_at ? meal.logged_at.slice(11,16) : '';
-              const photo = meal.photo_path ? `<img src="${meal.photo_path}" alt="meal" class="w-10 h-10 rounded-md object-cover flex-shrink-0" loading="lazy">` : '';
-              html += `<div class="flex items-center gap-2 py-1.5 border-b border-gray-50 last:border-0">
-                ${photo}
-                <div class="flex-1 min-w-0">
-                  <p class="text-sm truncate">${text}</p>
-                  <p class="text-[10px] text-faint">${meal.meal_type||'meal'} \u00b7 ${time}</p>
+              const thumbPhoto = meal.photo_path ? `<img src="${meal.photo_path}" alt="meal" class="w-10 h-10 rounded-md object-cover flex-shrink-0" loading="lazy">` : '';
+              const fullPhoto = meal.photo_path ? `<img src="${meal.photo_path}" alt="meal" class="w-full max-h-48 rounded-lg object-cover mb-2" loading="lazy">` : '';
+              const fiber = Math.round(meal.total_fiber||0);
+              const sugar = Math.round(meal.total_sugar||0);
+              const sodium = Math.round(meal.total_sodium||0);
+              const hasMicros = fiber || sugar || sodium;
+              let itemsHtml = '';
+              if(meal.items && meal.items.length){
+                itemsHtml = `<div class="space-y-0.5"><div class="text-[9px] text-faint uppercase font-semibold mb-1">Items</div>`;
+                meal.items.forEach(it => {
+                  const name = it.food_name || ((it.qty||'') + ' ' + (it.unit||'')).trim();
+                  itemsHtml += `<div class="flex items-center justify-between text-[11px] py-0.5">
+                    <span class="text-muted truncate flex-1">${name}</span>
+                    <span class="text-faint font-mono ml-2 flex-shrink-0">${Math.round(it.calories||0)}cal \u00b7 ${Math.round(it.protein||0)}p \u00b7 ${Math.round(it.carbs||0)}c \u00b7 ${Math.round(it.fat||0)}f</span>
+                  </div>`;
+                });
+                itemsHtml += '</div>';
+              }
+              html += `<div class="meal-row border-b border-gray-50 last:border-0">
+                <div class="flex items-center gap-2 py-1.5 cursor-pointer hover:bg-gray-50/50 rounded transition-colors px-1 -mx-1" onclick="this.parentElement.querySelector('.meal-detail').classList.toggle('hidden')">
+                  ${thumbPhoto}
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm truncate">${text}</p>
+                    <p class="text-[10px] text-faint">${meal.meal_type||'meal'} \u00b7 ${time}</p>
+                  </div>
+                  <span class="text-xs font-mono font-medium ml-2 flex-shrink-0">${Math.round(meal.total_calories||0)}</span>
+                  <svg class="w-3.5 h-3.5 text-faint flex-shrink-0 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                 </div>
-                <span class="text-xs font-mono font-medium ml-2 flex-shrink-0">${Math.round(meal.total_calories||0)}</span>
+                <div class="meal-detail hidden pb-2 pt-1 px-1">
+                  ${fullPhoto}
+                  <div class="grid grid-cols-4 gap-1 mb-2">
+                    <div class="text-center p-1.5 bg-gray-50 rounded"><div class="text-[9px] text-faint uppercase">Cal</div><div class="text-xs font-semibold">${Math.round(meal.total_calories||0)}</div></div>
+                    <div class="text-center p-1.5 bg-gray-50 rounded"><div class="text-[9px] text-faint uppercase">Protein</div><div class="text-xs font-semibold">${Math.round(meal.total_protein||0)}g</div></div>
+                    <div class="text-center p-1.5 bg-gray-50 rounded"><div class="text-[9px] text-faint uppercase">Carbs</div><div class="text-xs font-semibold">${Math.round(meal.total_carbs||0)}g</div></div>
+                    <div class="text-center p-1.5 bg-gray-50 rounded"><div class="text-[9px] text-faint uppercase">Fat</div><div class="text-xs font-semibold">${Math.round(meal.total_fat||0)}g</div></div>
+                  </div>
+                  ${hasMicros ? `<div class="grid grid-cols-3 gap-1 mb-2">
+                    <div class="text-center p-1 bg-gray-50 rounded"><div class="text-[9px] text-faint uppercase">Fiber</div><div class="text-[10px] font-medium">${fiber}g</div></div>
+                    <div class="text-center p-1 bg-gray-50 rounded"><div class="text-[9px] text-faint uppercase">Sugar</div><div class="text-[10px] font-medium">${sugar}g</div></div>
+                    <div class="text-center p-1 bg-gray-50 rounded"><div class="text-[9px] text-faint uppercase">Sodium</div><div class="text-[10px] font-medium">${sodium}mg</div></div>
+                  </div>` : ''}
+                  ${itemsHtml}
+                </div>
               </div>`;
             });
           }
