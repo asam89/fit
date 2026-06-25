@@ -145,6 +145,10 @@ async def dashboard_home(request: Request):
             "icon": "key",
         })
 
+    # Body composition
+    body_comp = db.get_latest_body_composition(uid)
+    body_comp_history = db.get_body_composition_history(uid)
+
     # Build rich summaries
     today_summary = build_today_summary(uid)
     month_summary = build_month_summary(uid)
@@ -178,6 +182,8 @@ async def dashboard_home(request: Request):
             "heatmap_data": heatmap_data,
             "has_ai": has_ai,
             "user_tz": tz_str,
+            "body_comp": body_comp,
+            "body_comp_history": body_comp_history,
         },
     )
 
@@ -201,6 +207,34 @@ async def api_targets_refresh(request: Request):
     targets = compute_targets(uid)
     db.upsert_nutrition_targets(uid, targets)
     return JSONResponse(targets)
+
+
+@router.post("/api/body-composition")
+async def api_body_composition(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+    uid = user["user_id"]
+    data = await request.json()
+    body_fat_pct = data.get("body_fat_pct")
+    muscle_mass = data.get("muscle_mass")
+    muscle_mass_unit = data.get("muscle_mass_unit", "lbs")
+
+    if body_fat_pct is not None and (body_fat_pct < 1 or body_fat_pct > 60):
+        return JSONResponse({"error": "Body fat % must be between 1 and 60"}, status_code=400)
+    if muscle_mass is not None and (muscle_mass < 1 or muscle_mass > 200):
+        return JSONResponse({"error": "Muscle mass must be between 1 and 200"}, status_code=400)
+    if muscle_mass_unit not in ("lbs", "kg"):
+        return JSONResponse({"error": "Unit must be lbs or kg"}, status_code=400)
+
+    db.insert_body_composition(
+        user_id=uid,
+        body_fat_pct=body_fat_pct,
+        muscle_mass=muscle_mass,
+        muscle_mass_unit=muscle_mass_unit,
+        source="manual",
+    )
+    return JSONResponse({"ok": True})
 
 
 @router.post("/api/targets/set")
