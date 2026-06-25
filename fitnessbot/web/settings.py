@@ -114,6 +114,8 @@ async def settings_page(request: Request):
     notif_prefs = db.get_notification_preferences(uid)
     share = db.get_share_settings(uid)
     blocked_users = db.get_blocked_users(uid)
+    wearables = db.get_wearable_connections(uid)
+    recent_syncs = db.get_recent_syncs(uid, limit=5)
 
     return templates.TemplateResponse(
         "settings.html",
@@ -126,6 +128,8 @@ async def settings_page(request: Request):
             "notif": notif_prefs,
             "share": share,
             "blocked_users": blocked_users,
+            "wearables": wearables,
+            "recent_syncs": recent_syncs,
         },
     )
 
@@ -346,3 +350,38 @@ async def get_provider_models(request: Request):
         return JSONResponse({"error": "Unknown provider"}, status_code=400)
 
     return JSONResponse({"models": PROVIDERS[provider].list_models()})
+
+
+# --- Wearable routes ---
+
+VALID_DEVICE_TYPES = {"apple_health", "samsung_health", "garmin", "fitbit", "oura", "whoop"}
+
+
+@router.post("/settings/wearable/connect")
+async def connect_wearable(
+    request: Request,
+    device_type: str = Form(""),
+    device_name: str = Form(""),
+):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+
+    if device_type not in VALID_DEVICE_TYPES:
+        return RedirectResponse("/settings?error=invalid_device", status_code=303)
+
+    db.add_wearable_connection(user["user_id"], device_type, device_name or None)
+    return RedirectResponse("/settings?saved=wearable_connected", status_code=303)
+
+
+@router.post("/settings/wearable/disconnect")
+async def disconnect_wearable(
+    request: Request,
+    connection_id: int = Form(0),
+):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+
+    db.remove_wearable_connection(connection_id, user["user_id"])
+    return RedirectResponse("/settings?saved=wearable_disconnected", status_code=303)

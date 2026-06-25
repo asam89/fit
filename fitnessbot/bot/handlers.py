@@ -67,6 +67,7 @@ def register_handlers(app: Application, user_id: int) -> None:
             "/weight - Weight trend\n"
             "/undo - Remove last meal\n"
             "/plan - Training plan\n"
+            "/sync - Import wearable/health data\n"
             "/invite - Generate invite link\n"
             "/dashboard - Open web dashboard"
         )
@@ -224,6 +225,70 @@ def register_handlers(app: Application, user_id: int) -> None:
             f"They'll be connected to you when they sign up."
         )
 
+    async def cmd_sync(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        text = (update.message.text or "").replace("/sync", "").strip()
+        doc = update.message.document
+
+        if not text and not doc:
+            await update.message.reply_text(
+                "How to use /sync:\n\n"
+                "1. Send /sync with a file attached (CSV, JSON, or XML export from your health app)\n"
+                "2. Or send /sync followed by your data as text:\n\n"
+                "Example:\n"
+                "/sync Steps: 8432, Calories burned: 2150, Sleep: 7h 20m, Weight: 225.6 lbs\n\n"
+                "Supported: Apple Health, Samsung Health, Garmin, Fitbit, Oura, WHOOP exports."
+            )
+            return
+
+        source = "telegram_sync"
+        raw_payload = ""
+        parse_error = None
+
+        if doc:
+            await update.message.reply_text("Processing your health data file...")
+            try:
+                file = await context.bot.get_file(doc.file_id)
+                async with httpx.AsyncClient(timeout=30) as client:
+                    resp = await client.get(file.file_path)
+                    file_bytes = resp.content
+                raw_payload = file_bytes.decode("utf-8", errors="replace")
+                fname = (doc.file_name or "").lower()
+                if fname.endswith(".json"):
+                    source = "json_import"
+                elif fname.endswith(".xml"):
+                    source = "xml_import"
+                elif fname.endswith(".csv"):
+                    source = "csv_import"
+                else:
+                    source = "file_import"
+            except Exception as e:
+                parse_error = str(e)
+                logger.error("Sync file download error: %s", e)
+                await update.message.reply_text("Error downloading the file. Please try again.")
+                db.insert_device_sync_log(user_id, source, "", False, parse_error)
+                return
+        else:
+            raw_payload = text
+            source = "text_sync"
+
+        db.insert_device_sync_log(user_id, source, raw_payload[:10000], True)
+
+        reply = await process_message(
+            user_id,
+            f"[HEALTH_SYNC] The user synced the following health/wearable data. "
+            f"Parse it, extract any useful metrics (steps, calories burned, heart rate, "
+            f"sleep, weight, workouts, etc.), summarize what was imported, and log any "
+            f"weight or exercise data. Here is the data:\n\n{raw_payload[:4000]}",
+            channel="text",
+        )
+        await update.message.reply_text(reply)
+
+    async def handle_sync_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if not update.message.caption or not update.message.caption.strip().startswith("/sync"):
+            return
+        update.message.text = update.message.caption
+        await cmd_sync(update, context)
+
     async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         photo = update.message.photo
         if not photo:
@@ -364,9 +429,11 @@ def register_handlers(app: Application, user_id: int) -> None:
     app.add_handler(CommandHandler("dashboard", cmd_dashboard))
     app.add_handler(CommandHandler("plan", cmd_plan))
     app.add_handler(CommandHandler("invite", cmd_invite))
+    app.add_handler(CommandHandler("sync", cmd_sync))
     app.add_handler(CallbackQueryHandler(handle_plan_callback, pattern=r"^plan_done:"))
     app.add_handler(CallbackQueryHandler(handle_meal_type_callback, pattern=r"^meal_type:"))
     app.add_handler(CallbackQueryHandler(handle_meal_delete_callback, pattern=r"^meal_del:"))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_sync_document))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))

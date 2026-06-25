@@ -1004,6 +1004,24 @@ def run_migrations() -> None:
             conn.execute("INSERT INTO schema_version (version) VALUES (18)")
             conn.commit()
 
+        # --- Migration 19: wearable_connections table ---
+        if current < 19:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS wearable_connections (
+                    connection_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(user_id),
+                    device_type TEXT NOT NULL,
+                    device_name TEXT,
+                    connected_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                    last_sync_at TEXT,
+                    sync_count INTEGER NOT NULL DEFAULT 0,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    config_json TEXT
+                )
+            """)
+            conn.execute("INSERT INTO schema_version (version) VALUES (19)")
+            conn.commit()
+
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
         init_db()
@@ -3189,5 +3207,86 @@ def get_friend_summary(user_id: int, viewer_id: int) -> dict:
             summary["latest_weight"] = dict(weight_row) if weight_row else None
 
         return summary
+    finally:
+        conn.close()
+
+
+# --- Wearable connections ---
+
+def get_wearable_connections(user_id: int) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM wearable_connections WHERE user_id=? AND is_active=1 ORDER BY connected_at DESC",
+            (user_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        conn.close()
+
+
+def add_wearable_connection(user_id: int, device_type: str, device_name: str | None = None) -> int:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "INSERT INTO wearable_connections (user_id, device_type, device_name) VALUES (?, ?, ?)",
+            (user_id, device_type, device_name or device_type),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def remove_wearable_connection(connection_id: int, user_id: int) -> bool:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "UPDATE wearable_connections SET is_active=0 WHERE connection_id=? AND user_id=?",
+            (connection_id, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def update_wearable_sync(connection_id: int, user_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE wearable_connections SET last_sync_at=?, sync_count=sync_count+1 WHERE connection_id=? AND user_id=?",
+            (utcnow(), connection_id, user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def insert_device_sync_log(user_id: int, source: str, raw_payload: str, parsed_ok: bool, error: str | None = None) -> int:
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "INSERT INTO device_sync_log (user_id, source, raw_payload, parsed_ok, error) VALUES (?, ?, ?, ?, ?)",
+            (user_id, source, raw_payload, 1 if parsed_ok else 0, error),
+        )
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def get_recent_syncs(user_id: int, limit: int = 10) -> list[dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM device_sync_log WHERE user_id=? ORDER BY received_at DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except sqlite3.OperationalError:
+        return []
     finally:
         conn.close()
