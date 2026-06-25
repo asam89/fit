@@ -184,6 +184,7 @@ async def dashboard_home(request: Request):
             "user_tz": tz_str,
             "body_comp": body_comp,
             "body_comp_history": body_comp_history,
+            "activity_level": user.get("activity_level", "moderately_active"),
         },
     )
 
@@ -235,6 +236,27 @@ async def api_body_composition(request: Request):
         source="manual",
     )
     return JSONResponse({"ok": True})
+
+
+VALID_ACTIVITY_LEVELS = {"sedentary", "lightly_active", "moderately_active", "very_active", "extra_active"}
+
+
+@router.post("/api/activity-level")
+async def api_activity_level(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+    uid = user["user_id"]
+    data = await request.json()
+    level = data.get("activity_level", "")
+    if level not in VALID_ACTIVITY_LEVELS:
+        return JSONResponse({"error": f"Invalid activity level: {level}"}, status_code=400)
+    db.update_user(uid, activity_level=level)
+    # Recompute targets with the new activity level
+    from fitnessbot.nutrition import compute_targets
+    targets = compute_targets(uid)
+    db.upsert_nutrition_targets(uid, targets)
+    return JSONResponse({"ok": True, **targets})
 
 
 @router.post("/api/targets/set")

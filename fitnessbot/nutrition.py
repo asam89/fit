@@ -343,14 +343,29 @@ def compute_targets(user_id: int) -> dict:
 
 
 def _resolve_goal_type(user_id: int) -> str:
-    """Determine goal type from active goal or diet plan."""
+    """Determine goal type from active goal, target weight vs current weight, or diet plan."""
     goal = db.get_active_goal(user_id)
     if goal and goal.get("goal_type"):
         gt = goal["goal_type"]
-        if gt in GOAL_ADJUSTMENTS:
+        if gt in GOAL_ADJUSTMENTS and gt != "maintain":
             return gt
         if gt == "event":
             return "cut"
+
+        # Infer from target_weight vs current weight when goal says "maintain"
+        target_wt = goal.get("target_weight")
+        if target_wt:
+            weight_summary = get_weight_summary(user_id)
+            current_wt = weight_summary.get("current_smoothed") or weight_summary.get("current_raw")
+            if current_wt:
+                diff = current_wt - target_wt
+                if diff > 5:
+                    return "cut"
+                elif diff < -5:
+                    return "bulk"
+
+        if gt in GOAL_ADJUSTMENTS:
+            return gt
 
     plan = db.get_active_diet_plan(user_id)
     if plan:
