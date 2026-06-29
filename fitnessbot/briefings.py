@@ -54,11 +54,43 @@ async def _send_telegram(user_id: int, text: str) -> bool:
         return False
 
 
+def _get_yesterday_performance(user_id: int) -> dict | None:
+    """Get yesterday's totals for coaching tone in morning brief."""
+    from fitnessbot.tz import day_utc_range, user_today as _ut
+    from datetime import datetime as _dt, timedelta
+    today_str = _ut(user_id)
+    yesterday = (_dt.strptime(today_str, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+    urange = day_utc_range(yesterday, user_id)
+    totals = db.get_today_totals(user_id, yesterday, utc_range=urange)
+    if totals["calories"] == 0:
+        return None
+    targets = _get_user_targets(user_id)
+    return {
+        "cal_pct": totals["calories"] / targets["calories"] if targets["calories"] else 0,
+        "protein_pct": totals["protein"] / targets["protein"] if targets["protein"] else 0,
+        "fat_over": totals["fat"] > targets["fat"] * 1.1 if targets["fat"] else False,
+        "calories": totals["calories"],
+        "protein": totals["protein"],
+    }
+
+
 def build_morning_brief(user_id: int) -> str:
     weight = get_weight_summary(user_id)
     targets = _get_user_targets(user_id)
 
     lines = ["*Morning brief*", ""]
+
+    # Coaching tone based on yesterday's performance
+    yesterday = _get_yesterday_performance(user_id)
+    if yesterday:
+        if yesterday["cal_pct"] > 1.15:
+            lines.append(f"Yesterday: {yesterday['calories']:.0f} cal — over target. Time to tighten up today. No excuses.")
+        elif yesterday["protein_pct"] < 0.7:
+            lines.append(f"Yesterday: only {yesterday['protein']:.0f}g protein. That's not enough. Prioritize it from meal one today.")
+        elif yesterday["cal_pct"] > 0.9 and yesterday["protein_pct"] > 0.85:
+            lines.append("Solid day yesterday. Keep that energy going.")
+        lines.append("")
+
     if weight.get("has_data"):
         lines.append(f"Weight: {weight['current_smoothed']} lbs (smoothed)")
         if weight.get("trend_7d") is not None:
@@ -94,13 +126,17 @@ def build_midday_check(user_id: int) -> str:
     lines = ["*Midday check*", ""]
 
     if totals["calories"] == 0:
-        lines.append("No meals logged yet — what'd you have?")
+        lines.append("Nothing logged yet. It's past noon. Don't let the day slip away — log what you've eaten.")
+        lines.append("")
+        lines.append(f"[View dashboard]({Config.BASE_URL}/dashboard)")
         return "\n".join(lines)
 
-    remaining = targets["calories"] - totals["calories"]
-    if remaining > targets["calories"] * 0.6:
+    remaining_cal = targets["calories"] - totals["calories"]
+    remaining_prot = targets["protein"] - totals["protein"]
+
+    if remaining_cal > targets["calories"] * 0.6:
         pace = "light so far"
-    elif remaining > targets["calories"] * 0.3:
+    elif remaining_cal > targets["calories"] * 0.3:
         pace = "on track"
     else:
         pace = "ahead"
@@ -108,7 +144,14 @@ def build_midday_check(user_id: int) -> str:
     lines.append(f"Intake so far: {totals['calories']:.0f} / {targets['calories']} cal ({pace})")
     lines.append(f"  P: {totals['protein']:.0f}/{targets['protein']}g · C: {totals['carbs']:.0f}/{targets['carbs']}g · F: {totals['fat']:.0f}/{targets['fat']}g")
 
-    if meal_count < 2:
+    # Coaching nudge based on current state
+    if totals["fat"] > targets["fat"] * 0.9 and remaining_cal > targets["calories"] * 0.3:
+        lines.append("")
+        lines.append(f"Fat's already at {totals['fat']:.0f}g — close to your {targets['fat']}g limit. Go lean the rest of the day.")
+    elif remaining_prot > targets["protein"] * 0.6:
+        lines.append("")
+        lines.append(f"Only {totals['protein']:.0f}g protein so far. You need {remaining_prot:.0f}g more — that's a lot to cram into dinner. Start stacking now.")
+    elif meal_count < 2:
         lines.append("")
         lines.append("Only one meal so far — log lunch when you eat.")
 
@@ -163,15 +206,28 @@ def build_evening_wrap(user_id: int) -> str:
         lines.append("")
         lines.append(adherence_text)
 
-    nudges = []
-    if meal_count < 3:
-        nudges.append("No dinner logged yet — want to add it?")
-    prot_gap = targets["protein"] - totals["protein"]
-    if prot_gap > 10:
-        nudges.append(f"~{prot_gap:.0f}g protein short. A scoop of whey or Greek yogurt before bed closes the gap.")
+    # Coaching tone based on how the day went
+    cal_pct = totals["calories"] / targets["calories"] if targets["calories"] else 0
+    prot_pct = totals["protein"] / targets["protein"] if targets["protein"] else 0
+    fat_pct = totals["fat"] / targets["fat"] if targets["fat"] else 0
 
-    if nudges:
-        lines.append("")
+    lines.append("")
+    if cal_pct > 1.15 and fat_pct > 1.2:
+        lines.append("Tough day. Over on calories and fat. Don't spiral — just reset tomorrow. Clean meals, lean protein, move on.")
+    elif cal_pct > 1.1:
+        lines.append(f"Calories exceeded by {totals['calories'] - targets['calories']:.0f}. It happens. Tomorrow: be intentional from breakfast.")
+    elif prot_pct < 0.7:
+        prot_gap = targets["protein"] - totals["protein"]
+        lines.append(f"Only {totals['protein']:.0f}g protein today — {prot_gap:.0f}g short. That's hurting your recovery. A scoop of whey or Greek yogurt before bed helps, but plan better tomorrow.")
+    elif cal_pct > 0.9 and prot_pct > 0.85:
+        lines.append("Good day. Targets met, protein solid. This is what consistency looks like.")
+    else:
+        nudges = []
+        if meal_count < 3:
+            nudges.append("No dinner logged yet — want to add it?")
+        prot_gap = targets["protein"] - totals["protein"]
+        if prot_gap > 10:
+            nudges.append(f"~{prot_gap:.0f}g protein short. A scoop of whey or Greek yogurt before bed closes the gap.")
         for n in nudges:
             lines.append(n)
 

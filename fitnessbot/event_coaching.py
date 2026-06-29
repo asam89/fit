@@ -157,14 +157,20 @@ Given the event details, create a comprehensive but practical prep plan. Return 
 Be specific to the sport/event type. Use evidence-based training principles. Keep it practical and actionable.
 If the prep window is short (<2 weeks), focus on what's realistically achievable and event-day readiness rather than building new fitness."""
 
-MOTIVATION_SYSTEM = """You are a motivational fitness coach. Generate a brief, personalized check-in message for someone preparing for an upcoming event.
+MOTIVATION_SYSTEM = """You are a fitness coach with a complex, human personality — not a motivational poster. Generate a brief, personalized check-in message.
+
+EMOTIONAL RANGE — pick the right tone for the situation:
+- FIRED UP: when they're close to the event and training hard. Match their energy. Be the hype man. "6 workouts in 7 days. You're not hoping to be ready — you're making sure of it."
+- TOUGH: when they've been slacking — missed workouts, inconsistent logging, overeating. Don't be mean, but don't let them off the hook. "3 missed sessions this week. The tournament doesn't care about your excuses. Get in the gym today."
+- THOUGHTFUL: when they're grinding but burning out, or when sleep/recovery data looks bad. Pull back. "Your body's telling you something. 6 hours of sleep isn't enough to recover from what you're putting it through. Tonight: bed by 10, no negotiation."
+- REAL TALK: when the data shows a pattern they might not see. Connect the dots honestly. "You're training hard but eating 500 over target 4 of the last 7 days. The gym work won't outrun the kitchen. Pick one: tighten the diet or accept the weight stays."
 
 Rules:
 - Reference their specific event and days remaining
 - Include ONE actionable tip for today
 - Mention their recent progress if data is provided
 - Keep it to 3-5 lines max
-- Tone: direct, specific, encouraging but not corny
+- Never be generic. Never sound like a bot. Sound like someone who actually knows them.
 - End with a question or prompt that invites engagement"""
 
 READINESS_SYSTEM = """You are a sport science coach assessing readiness for an upcoming event.
@@ -270,6 +276,7 @@ def _deterministic_prep_plan(title: str, event_date: str, sport_type: str | None
 def build_motivation_checkin(event_goal: dict, user_id: int) -> str:
     """Generate a motivation check-in message for an active event goal."""
     from fitnessbot.inference.factory import get_inference
+    from fitnessbot.tz import utc_offset_hours as _utc_off
 
     now = datetime.now(timezone.utc)
     event_date = datetime.strptime(event_goal["event_date"], "%Y-%m-%d")
@@ -277,6 +284,34 @@ def build_motivation_checkin(event_goal: dict, user_id: int) -> str:
 
     workout_hist = db.get_workout_history(user_id, 7)
     recent_activity = f"{len(workout_hist)} workouts in the last 7 days" if workout_hist else "No workouts logged this week"
+
+    # Richer context for emotional tone selection
+    sleep_hist = db.get_sleep_history(user_id, 7)
+    avg_sleep = None
+    if sleep_hist:
+        sleep_hours = [s.get("hours", 0) for s in sleep_hist if s.get("hours")]
+        if sleep_hours:
+            avg_sleep = sum(sleep_hours) / len(sleep_hours)
+
+    macro_hist = db.get_macro_history(user_id, 7, utc_offset_hours=_utc_off(user_id))
+    nutrition_context = ""
+    if macro_hist:
+        from fitnessbot.nutrition import get_nutrition_targets
+        targets = get_nutrition_targets(user_id)
+        over_days = sum(1 for d in macro_hist if (d.get("calories") or 0) > targets["calories"] * 1.05)
+        avg_cal = sum(d.get("calories", 0) or 0 for d in macro_hist) / len(macro_hist)
+        nutrition_context = f"Avg calories (7d): {avg_cal:.0f} (target: {targets['calories']}). Days over target: {over_days}/{len(macro_hist)}."
+
+    # Training plan adherence
+    from fitnessbot import training_plan
+    from fitnessbot.training_plan import _monday_of_week
+    from fitnessbot.tz import user_now
+    ws = _monday_of_week(user_now(user_id).date())
+    plan_items = training_plan.get_plan_items(user_id, ws)
+    plan_context = ""
+    if plan_items:
+        adherence = training_plan.compute_adherence(plan_items)
+        plan_context = f"Training plan: {adherence['label']}."
 
     prep_plan = json.loads(event_goal["prep_plan_json"]) if event_goal.get("prep_plan_json") else {}
     hooks = prep_plan.get("motivation_hooks", [])
@@ -286,9 +321,12 @@ def build_motivation_checkin(event_goal: dict, user_id: int) -> str:
 Days remaining: {days_remaining}
 Sport: {event_goal.get('sport_type', 'general')}
 Recent activity: {recent_activity}
+{f'Sleep avg (7d): {avg_sleep:.1f}h' if avg_sleep else 'Sleep: not tracked'}
+{nutrition_context if nutrition_context else 'Nutrition: not enough data'}
+{plan_context if plan_context else ''}
 Motivation angle: {hook}
 
-Generate a brief check-in message."""
+Pick the right emotional tone based on the data above and generate a check-in."""
 
     try:
         infer = get_inference(user_id)

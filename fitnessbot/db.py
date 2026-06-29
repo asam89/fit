@@ -1022,6 +1022,61 @@ def run_migrations() -> None:
             conn.execute("INSERT INTO schema_version (version) VALUES (19)")
             conn.commit()
 
+        if current < 20:
+            # Backfill weight_trend: recompute smoothed weights with alpha=0.2
+            # and calculate 7d trends from existing body_composition data
+            rows = conn.execute("""
+                SELECT DISTINCT user_id FROM body_composition
+                WHERE weight IS NOT NULL
+            """).fetchall()
+            for row in rows:
+                uid = row["user_id"]
+                entries = conn.execute("""
+                    SELECT weight, DATE(measured_at) as d
+                    FROM body_composition
+                    WHERE user_id = ? AND weight IS NOT NULL
+                    ORDER BY measured_at ASC
+                """, (uid,)).fetchall()
+                # Group by date (take last entry per day)
+                by_date = {}
+                for e in entries:
+                    by_date[e["d"]] = e["weight"]
+                # Recompute smoothed weights with alpha=0.2
+                alpha = 0.2
+                smoothed = None
+                date_smoothed = {}
+                for d in sorted(by_date.keys()):
+                    raw = by_date[d]
+                    if smoothed is None:
+                        smoothed = raw
+                    else:
+                        smoothed = alpha * raw + (1 - alpha) * smoothed
+                    date_smoothed[d] = smoothed
+                # Write back with trends
+                sorted_dates = sorted(date_smoothed.keys())
+                for i, d in enumerate(sorted_dates):
+                    raw = by_date[d]
+                    sm = date_smoothed[d]
+                    # 7-day trend: find closest entry to 7 days ago
+                    t7 = None
+                    for j in range(i - 1, -1, -1):
+                        from datetime import datetime as _mdt
+                        days_diff = (_mdt.strptime(d, "%Y-%m-%d") - _mdt.strptime(sorted_dates[j], "%Y-%m-%d")).days
+                        if days_diff >= 4:  # at least 4 days of history for 7d trend
+                            t7 = sm - date_smoothed[sorted_dates[j]]
+                            break
+                    conn.execute("""
+                        INSERT INTO weight_trend (user_id, date, raw_weight, smoothed_weight, trend_7d, trend_30d)
+                        VALUES (?, ?, ?, ?, ?, NULL)
+                        ON CONFLICT(user_id, date) DO UPDATE SET
+                            raw_weight = excluded.raw_weight,
+                            smoothed_weight = excluded.smoothed_weight,
+                            trend_7d = excluded.trend_7d
+                    """, (uid, d, raw, round(sm, 4), round(t7, 2) if t7 is not None else None))
+                conn.commit()
+            conn.execute("INSERT INTO schema_version (version) VALUES (20)")
+            conn.commit()
+
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
         init_db()
@@ -2576,12 +2631,12 @@ def update_event_goal(eg_id: int, **kwargs) -> None:
         conn.close()
 
 
-def get_due_event_checkins() -> list[dict]:
-    """Get all active event goals needing a motivation check-in today.
+def get_due_event_checkins(max_per_day: int = 3, min_interval_hours: int = 4) -> list[dict]:
+    """Get active event goals eligible for a motivation check-in.
 
-    Uses each user's timezone to determine whether a checkin has already
-    been sent for the current *local* day, preventing duplicate messages
-    when the UTC date rolls over before the user's local day ends.
+    Allows up to `max_per_day` check-ins per local day with at least
+    `min_interval_hours` between each. Uses each user's timezone for
+    day boundaries.
     """
     conn = get_connection()
     try:
@@ -2593,21 +2648,43 @@ def get_due_event_checkins() -> list[dict]:
             WHERE eg.status = 'active'
             AND eg.event_date >= date('now')
         """).fetchall()
-        # Filter in Python using each user's local date for dedup
-        from fitnessbot.tz import user_today as _user_today_tz
+        from fitnessbot.tz import user_today as _user_today_tz, day_utc_range as _day_utc_range
+        from datetime import datetime as _dt, timezone as _tz
+
         result = []
         for r in rows:
             row = dict(r)
             uid = row["user_id"]
             local_today = _user_today_tz(uid)
             last = row.get("last_checkin_at")
+
             if last is None:
                 result.append(row)
-            else:
-                # Compare last checkin date against user's local today
-                last_date = last[:10]  # "YYYY-MM-DD" prefix of ISO timestamp
-                if last_date < local_today:
-                    result.append(row)
+                continue
+
+            # Check minimum interval (hours since last checkin)
+            try:
+                last_dt = _dt.strptime(last, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=_tz.utc)
+            except ValueError:
+                last_dt = _dt.strptime(last[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=_tz.utc)
+            now_utc = _dt.now(_tz.utc)
+            hours_since = (now_utc - last_dt).total_seconds() / 3600
+            if hours_since < min_interval_hours:
+                continue
+
+            # Count check-ins sent today (local day)
+            utc_start, utc_end = _day_utc_range(local_today, uid)
+            count_row = conn.execute(
+                """SELECT COUNT(*) as c FROM briefing_log
+                   WHERE user_id = ? AND briefing_type = 'event_checkin'
+                   AND sent_at >= ? AND sent_at < ?""",
+                (uid, utc_start, utc_end),
+            ).fetchone()
+            today_count = count_row["c"] if count_row else 0
+
+            if today_count < max_per_day:
+                result.append(row)
+
         return result
     finally:
         conn.close()
