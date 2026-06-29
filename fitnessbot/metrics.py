@@ -25,8 +25,21 @@ def log_weight(
 
     today = user_today(user_id)
     smoothed = compute_smoothed_weight(user_id, weight)
+
+    # Save today's entry FIRST so compute_trends sees the current data point
+    db.upsert_weight_trend(
+        user_id=user_id,
+        date_str=today,
+        raw_weight=weight,
+        smoothed_weight=smoothed,
+        trend_7d=None,
+        trend_30d=None,
+    )
+
+    # Now compute trends with today's entry included
     trend_7d, trend_30d = compute_trends(user_id)
 
+    # Update with computed trends
     db.upsert_weight_trend(
         user_id=user_id,
         date_str=today,
@@ -39,16 +52,17 @@ def log_weight(
     return {
         "raw": weight,
         "smoothed": round(smoothed, 1),
-        "trend_7d": round(trend_7d, 1) if trend_7d else None,
-        "trend_30d": round(trend_30d, 1) if trend_30d else None,
+        "trend_7d": round(trend_7d, 1) if trend_7d is not None else None,
+        "trend_30d": round(trend_30d, 1) if trend_30d is not None else None,
         "unit": weight_unit,
     }
 
 
-def compute_smoothed_weight(user_id: int, new_weight: float, alpha: float = 0.1) -> float:
-    """Exponentially-weighted moving average with ~7-10 day half-life.
+def compute_smoothed_weight(user_id: int, new_weight: float, alpha: float = 0.2) -> float:
+    """Exponentially-weighted moving average.
 
-    alpha = 0.1 gives a half-life of about 6.6 days: ln(2)/ln(1-0.1) ~ 6.58
+    alpha = 0.2 gives a half-life of ~3.1 days — responsive enough to
+    reflect real changes within a week while still filtering daily noise.
     """
     trend = db.get_weight_trend(user_id, limit=1)
     if trend and trend[0].get("smoothed_weight"):
@@ -58,29 +72,73 @@ def compute_smoothed_weight(user_id: int, new_weight: float, alpha: float = 0.1)
 
 
 def compute_trends(user_id: int) -> tuple[float | None, float | None]:
-    """Compute 7-day and 30-day weight change from smoothed trend."""
+    """Compute 7-day and 30-day weight change from smoothed trend.
+
+    Uses the closest available data point to the target window (e.g. if no
+    entry exists at exactly 7 days ago, uses the nearest entry within a
+    +-2 day tolerance). This prevents trends from staying NULL when entries
+    are sparse or don't land on exact 7/30 day boundaries.
+    """
     trend_data = db.get_weight_trend(user_id, limit=90)
     if not trend_data:
         return None, None
 
-    current = trend_data[0]["smoothed_weight"] if trend_data[0].get("smoothed_weight") else None
+    current = trend_data[0].get("smoothed_weight")
     if current is None:
         return None, None
 
-    trend_7d = None
-    trend_30d = None
+    latest_date = trend_data[0]["date"]
 
-    for entry in trend_data:
-        if not entry.get("smoothed_weight"):
-            continue
-        days_ago = _days_between(entry["date"], trend_data[0]["date"])
-        if days_ago >= 7 and trend_7d is None:
-            trend_7d = current - entry["smoothed_weight"]
-        if days_ago >= 30 and trend_30d is None:
-            trend_30d = current - entry["smoothed_weight"]
-            break
+    trend_7d = _find_trend_at(trend_data, latest_date, current, target_days=7, tolerance=3)
+    trend_30d = _find_trend_at(trend_data, latest_date, current, target_days=30, tolerance=5)
 
     return trend_7d, trend_30d
+
+
+def _find_trend_at(
+    trend_data: list[dict],
+    latest_date: str,
+    current_weight: float,
+    target_days: int,
+    tolerance: int,
+) -> float | None:
+    """Find the weight change over approximately target_days.
+
+    Picks the entry closest to target_days ago (within tolerance).
+    Falls back to the oldest available entry if data window is shorter
+    than target_days but has at least 3 days of history.
+    """
+    best_entry = None
+    best_distance = float("inf")
+    oldest_entry = None
+    oldest_days = 0
+
+    for entry in trend_data[1:]:  # skip the latest (current) entry
+        if not entry.get("smoothed_weight"):
+            continue
+        days_ago = _days_between(entry["date"], latest_date)
+        if days_ago == 0:
+            continue
+
+        # Track oldest for fallback
+        if days_ago > oldest_days:
+            oldest_days = days_ago
+            oldest_entry = entry
+
+        # Look for closest to target within tolerance
+        distance = abs(days_ago - target_days)
+        if distance <= tolerance and distance < best_distance:
+            best_distance = distance
+            best_entry = entry
+
+    if best_entry:
+        return current_weight - best_entry["smoothed_weight"]
+
+    # Fallback: use oldest entry if we have at least 3 days of data
+    if oldest_entry and oldest_days >= 3 and target_days <= 7:
+        return current_weight - oldest_entry["smoothed_weight"]
+
+    return None
 
 
 def _days_between(date1: str, date2: str) -> int:
@@ -98,6 +156,11 @@ def get_weight_summary(user_id: int) -> dict:
         return {"has_data": False}
 
     latest = trend[0]
+    days_since_last = None
+    if latest.get("date"):
+        today = user_today(user_id)
+        days_since_last = _days_between(latest["date"], today)
+
     return {
         "has_data": True,
         "current_smoothed": round(latest["smoothed_weight"], 1) if latest.get("smoothed_weight") else None,
@@ -106,4 +169,5 @@ def get_weight_summary(user_id: int) -> dict:
         "trend_30d": round(latest["trend_30d"], 1) if latest.get("trend_30d") else None,
         "date": latest.get("date"),
         "history_count": len(history),
+        "days_since_last": days_since_last,
     }
