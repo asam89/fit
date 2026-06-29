@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 
 from fitnessbot.config import Config
 from fitnessbot import db
-from fitnessbot.metrics import get_weight_summary
+from fitnessbot.metrics import get_weight_summary, build_weight_analysis
 from fitnessbot.nutrition import get_nutrition_targets
 from fitnessbot.web.connections import decrypt_token
 from fitnessbot.tz import user_today
@@ -91,11 +91,22 @@ def build_morning_brief(user_id: int) -> str:
             lines.append("Solid day yesterday. Keep that energy going.")
         lines.append("")
 
-    if weight.get("has_data"):
-        lines.append(f"Weight: {weight['current_smoothed']} lbs (smoothed)")
-        if weight.get("trend_7d") is not None:
-            direction = "down" if weight["trend_7d"] < 0 else "up"
-            lines.append(f"  7d: {abs(weight['trend_7d']):.1f} lbs {direction}")
+    # Weight with trend analysis
+    w_analysis = build_weight_analysis(user_id)
+    if w_analysis.get("has_data"):
+        lines.append(f"Weight: {w_analysis['current_smoothed']} lbs (smoothed)")
+        if w_analysis.get("trend_7d") is not None:
+            direction = "↓" if w_analysis["trend_7d"] < 0 else "↑"
+            lines.append(f"  7d: {direction} {abs(w_analysis['trend_7d']):.1f} lbs")
+        if w_analysis.get("trend_30d") is not None:
+            direction = "↓" if w_analysis["trend_30d"] < 0 else "↑"
+            lines.append(f"  30d: {direction} {abs(w_analysis['trend_30d']):.1f} lbs")
+        if w_analysis.get("goal_status") and w_analysis["goal_status"] != "no_goal":
+            lines.append(f"  {w_analysis['goal_message']}")
+        if w_analysis.get("weekly_rate") is not None:
+            rate = w_analysis["weekly_rate"]
+            if abs(rate) >= 0.2:
+                lines.append(f"  Rate: {'losing' if rate < 0 else 'gaining'} ~{abs(rate):.1f} lbs/week")
     else:
         lines.append("No weight data — hop on the scale this morning?")
 
@@ -192,13 +203,17 @@ def build_evening_wrap(user_id: int) -> str:
     lines.append(_stat("Carbs", totals["carbs"], targets["carbs"], "g"))
     lines.append(_stat("Fat", totals["fat"], targets["fat"], "g"))
 
-    if weight.get("has_data"):
+    # Weight with trend analysis
+    w_analysis = build_weight_analysis(user_id)
+    if w_analysis.get("has_data"):
         lines.append("")
-        w_line = f"Weight  {weight['current_smoothed']} lbs"
-        if weight.get("trend_7d") is not None:
-            direction = "up" if weight["trend_7d"] >= 0 else "down"
-            w_line += f"  ({abs(weight['trend_7d']):.1f} {direction} over 7d)"
+        w_line = f"Weight  {w_analysis['current_smoothed']} lbs"
+        if w_analysis.get("trend_7d") is not None:
+            direction = "↑" if w_analysis["trend_7d"] >= 0 else "↓"
+            w_line += f"  ({direction} {abs(w_analysis['trend_7d']):.1f} over 7d)"
         lines.append(w_line)
+        if w_analysis.get("goal_status") and w_analysis["goal_status"] != "no_goal":
+            lines.append(f"  {w_analysis['goal_message']}")
 
     from fitnessbot import training_plan
     adherence_text = training_plan.format_day_adherence(user_id, today)

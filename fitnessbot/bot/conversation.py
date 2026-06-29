@@ -13,7 +13,7 @@ from fitnessbot.event_coaching import (
     detect_sport_type, build_prep_plan, build_readiness_assessment,
     format_prep_plan_summary,
 )
-from fitnessbot.metrics import log_weight, get_weight_summary
+from fitnessbot.metrics import log_weight, get_weight_summary, build_weight_telegram_summary
 from fitnessbot.inference.base import InferenceError
 from fitnessbot.tz import user_today, user_now
 
@@ -47,15 +47,21 @@ Multi-data messages should produce multiple intents. Be concise.
 If confidence < 0.6, set "ambiguous": true and "clarification": "short question to ask".
 """
 
-RESPOND_SYSTEM = """You are a fitness coaching assistant with a human, emotionally intelligent personality. Given the user's context (targets, today's totals, what was just logged, weight trend), write a SHORT reply (2-4 lines max).
+RESPOND_SYSTEM = """You are a fitness coaching assistant with a human, emotionally intelligent personality. Given the user's context (targets, today's totals, what was just logged, weight trend, weight goal progress), write a SHORT reply (2-4 lines max).
 
 COACHING TONE — adapt based on the situation:
-- TOUGH LOVE when: they've overeaten (fat/calories exceeded), skipped workouts while eating over target, or are making the same mistake repeatedly. Be direct and blunt — "You blew past your fat target by 30g. That's two days in a row. Tomorrow: chicken, fish, lean cuts only. No excuses."
-- ENCOURAGING when: they're on track, making consistent progress, or just logged a good workout. Acknowledge the effort genuinely, not with generic cheerfulness.
+- TOUGH LOVE when: they've overeaten (fat/calories exceeded), skipped workouts while eating over target, weight trend going wrong direction vs goal, or making the same mistake repeatedly. Be direct and blunt — "You blew past your fat target by 30g. That's two days in a row. Tomorrow: chicken, fish, lean cuts only. No excuses."
+- ENCOURAGING when: they're on track, making consistent progress, weight moving toward goal, or just logged a good workout. Acknowledge the effort genuinely, not with generic cheerfulness.
 - GENTLE when: they're struggling, having a bad day, falling behind but clearly trying, or logging honestly despite poor results. Show empathy — "Rough day. You still showed up and logged it, which is more than most people do. Reset tomorrow."
-- CHALLENGING when: they're coasting — hitting targets but not pushing. Push them to level up — "You're comfortable. That's the danger zone. What's one thing you can do harder this week?"
+- CHALLENGING when: they're coasting — hitting targets but not pushing, weight stalled and not changing. Push them to level up — "You're comfortable. That's the danger zone. What's one thing you can do harder this week?"
 
 Never be fake-positive. Never sugarcoat when they need to hear the truth. But also never be cruel — even tough love comes from wanting them to succeed. Think: the coach who's hard on you because they see your potential.
+
+WEIGHT COACHING — when weight data is present in context:
+- After a weigh-in: comment on the trend direction and whether it aligns with their goal. "Weight's been moving down steadily — the deficit is working."
+- If weight trend contradicts the goal: connect the dots with diet data. "You want to get to 210 but you've gained 0.5 lbs this week. Your calories averaged 3,100 — that's 500 over target."
+- Reference the weekly rate if available, and the distance to their goal.
+- Be specific: "At this rate, you'll hit 210 in about 8 weeks" or "Weight's flat — something needs to change."
 
 Rules:
 - First confirm what was logged (use the EXACT numbers provided in context, never invent numbers)
@@ -248,7 +254,14 @@ def _act_metric(intent: dict, user_id: int) -> dict:
         try:
             w = float(value_str)
             info = log_weight(user_id, w)
-            return {"action": "weight_logged", "raw": info["raw"], "smoothed": info["smoothed"], "unit": unit or "lbs"}
+            weight_analysis = build_weight_telegram_summary(user_id)
+            return {
+                "action": "weight_logged",
+                "raw": info["raw"],
+                "smoothed": info["smoothed"],
+                "unit": unit or "lbs",
+                "analysis": weight_analysis,
+            }
         except (ValueError, TypeError):
             return {"action": "error", "error": f"Invalid weight: {value_str}"}
 
@@ -663,6 +676,15 @@ def _build_query_context(act_result: dict) -> str:
         if weight.get("trend_30d") is not None:
             direction = "down" if weight["trend_30d"] < 0 else "up"
             lines.append(f"  30d trend: {abs(weight['trend_30d']):.1f} lbs {direction}")
+        # Goal context
+        from fitnessbot.metrics import build_weight_analysis as _bwa
+        w_analysis = _bwa(user_id)
+        if w_analysis.get("has_data") and w_analysis.get("weight_goal"):
+            lines.append(f"  Goal: {w_analysis['weight_goal']} lbs ({w_analysis.get('distance_to_goal', '?')} lbs to go)")
+            lines.append(f"  Status: {w_analysis.get('goal_message', '')}")
+            rate = w_analysis.get("weekly_rate")
+            if rate is not None:
+                lines.append(f"  Weekly rate: {'losing' if rate < 0 else 'gaining'} {abs(rate):.1f} lbs/week")
     else:
         lines.append("\nWEIGHT: No weight data logged")
 
@@ -842,6 +864,9 @@ def _deterministic_confirmation(act_results: list[dict], user_id: int) -> str:
             parts.append(f"Logged: {item_names} \u2014 {r['total_calories']:.0f} cal, {r['total_protein']:.0f}g protein.")
         elif action == "weight_logged":
             parts.append(f"Logged weight: {r['raw']} {r.get('unit', 'lbs')}. Smoothed: {r['smoothed']} lbs.")
+            if r.get("analysis"):
+                parts.append("")
+                parts.append(r["analysis"])
         elif action == "sleep_logged":
             parts.append(f"Logged sleep: {r['hours']}h.")
         elif action == "rhr_logged":

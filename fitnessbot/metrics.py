@@ -171,3 +171,151 @@ def get_weight_summary(user_id: int) -> dict:
         "history_count": len(history),
         "days_since_last": days_since_last,
     }
+
+
+def build_weight_analysis(user_id: int) -> dict:
+    """Build a comprehensive weight analysis for dashboard and Telegram."""
+    summary = get_weight_summary(user_id)
+    if not summary.get("has_data"):
+        return {"has_data": False}
+
+    weight_goal = db.get_weight_goal(user_id)
+    trend_data = db.get_weight_trend(user_id, limit=90)
+
+    current = summary["current_smoothed"]
+    raw = summary.get("current_raw")
+    trend_7d = summary.get("trend_7d")
+    trend_30d = summary.get("trend_30d")
+
+    # Direction analysis
+    if weight_goal and current:
+        distance_to_goal = current - weight_goal
+        if abs(distance_to_goal) < 1:
+            goal_status = "at_goal"
+            goal_message = f"You're at your goal weight ({weight_goal} lbs). Maintain."
+        elif distance_to_goal > 0:
+            # Need to lose
+            if trend_7d is not None and trend_7d < -0.3:
+                goal_status = "on_track_losing"
+                weeks_est = abs(distance_to_goal / (trend_7d or -0.5))
+                goal_message = f"Losing weight toward {weight_goal} lbs. ~{weeks_est:.0f} weeks at this rate."
+            elif trend_7d is not None and trend_7d > 0.3:
+                goal_status = "wrong_direction"
+                goal_message = f"Gaining weight but your goal is {weight_goal} lbs. Diet and exercise aren't matching your target yet."
+            else:
+                goal_status = "stalled"
+                goal_message = f"{distance_to_goal:.1f} lbs to go. Weight is flat — adjust calories or increase activity."
+        else:
+            # Need to gain
+            if trend_7d is not None and trend_7d > 0.3:
+                goal_status = "on_track_gaining"
+                weeks_est = abs(distance_to_goal / (trend_7d or 0.5))
+                goal_message = f"Gaining toward {weight_goal} lbs. ~{weeks_est:.0f} weeks at this rate."
+            elif trend_7d is not None and trend_7d < -0.3:
+                goal_status = "wrong_direction"
+                goal_message = f"Losing weight but your goal is {weight_goal} lbs. Increase calories."
+            else:
+                goal_status = "stalled"
+                goal_message = f"{abs(distance_to_goal):.1f} lbs to go. Weight is flat — eat more to gain."
+    else:
+        goal_status = "no_goal"
+        goal_message = "Set a weight goal to track progress."
+
+    # Volatility check (raw vs smoothed spread)
+    volatility = None
+    if len(trend_data) >= 3:
+        recent_raws = [e["raw_weight"] for e in trend_data[:7] if e.get("raw_weight")]
+        if len(recent_raws) >= 3:
+            volatility = max(recent_raws) - min(recent_raws)
+
+    # Weekly rate of change
+    weekly_rate = None
+    if trend_7d is not None:
+        weekly_rate = trend_7d
+    elif trend_30d is not None:
+        weekly_rate = trend_30d / 4.3
+
+    # Build suggestions
+    suggestions = []
+    if goal_status == "wrong_direction" and distance_to_goal > 0:
+        suggestions.append("Cut 200-300 calories from daily intake")
+        suggestions.append("Add 20-30 min of walking daily")
+        suggestions.append("Track every meal — hidden calories add up")
+    elif goal_status == "stalled" and weight_goal and distance_to_goal > 0:
+        suggestions.append("Try a 10% calorie reduction for 2 weeks")
+        suggestions.append("Increase protein to preserve muscle while cutting")
+        suggestions.append("Add 2 more training sessions per week")
+    elif goal_status == "on_track_losing":
+        suggestions.append("Stay the course — consistency is working")
+        suggestions.append("Keep protein high to preserve muscle")
+    elif goal_status == "on_track_gaining":
+        suggestions.append("Good progress — keep surplus steady")
+        suggestions.append("Focus on strength training to ensure quality gains")
+    if volatility and volatility > 4:
+        suggestions.append(f"Weight swings of {volatility:.1f} lbs this week — weigh at the same time daily for accuracy")
+
+    return {
+        "has_data": True,
+        "current_smoothed": current,
+        "current_raw": raw,
+        "trend_7d": trend_7d,
+        "trend_30d": trend_30d,
+        "weight_goal": weight_goal,
+        "distance_to_goal": round(abs(current - weight_goal), 1) if weight_goal and current else None,
+        "goal_status": goal_status,
+        "goal_message": goal_message,
+        "weekly_rate": round(weekly_rate, 2) if weekly_rate is not None else None,
+        "volatility": round(volatility, 1) if volatility else None,
+        "suggestions": suggestions,
+        "history_count": summary.get("history_count", 0),
+        "days_since_last": summary.get("days_since_last"),
+    }
+
+
+def build_weight_telegram_summary(user_id: int) -> str:
+    """Build a rich weight trend message for Telegram after a weigh-in."""
+    analysis = build_weight_analysis(user_id)
+    if not analysis.get("has_data"):
+        return ""
+
+    lines = []
+
+    # Current weight
+    raw = analysis.get("current_raw")
+    smoothed = analysis.get("current_smoothed")
+    if raw and smoothed:
+        lines.append(f"Weight: {raw} lbs (smoothed: {smoothed})")
+
+    # Trend
+    t7 = analysis.get("trend_7d")
+    t30 = analysis.get("trend_30d")
+    if t7 is not None:
+        direction = "down" if t7 < 0 else "up"
+        lines.append(f"7-day trend: {abs(t7):.1f} lbs {direction}")
+    if t30 is not None:
+        direction = "down" if t30 < 0 else "up"
+        lines.append(f"30-day trend: {abs(t30):.1f} lbs {direction}")
+
+    # Goal analysis
+    goal_msg = analysis.get("goal_message")
+    if goal_msg and analysis["goal_status"] != "no_goal":
+        lines.append("")
+        lines.append(goal_msg)
+
+    # Weekly rate
+    rate = analysis.get("weekly_rate")
+    if rate is not None:
+        if abs(rate) < 0.2:
+            lines.append("Rate: Weight is essentially flat this week.")
+        else:
+            direction = "losing" if rate < 0 else "gaining"
+            lines.append(f"Rate: {direction} ~{abs(rate):.1f} lbs/week")
+
+    # Suggestions
+    suggestions = analysis.get("suggestions", [])
+    if suggestions:
+        lines.append("")
+        for s in suggestions[:2]:
+            lines.append(f"→ {s}")
+
+    return "\n".join(lines)
