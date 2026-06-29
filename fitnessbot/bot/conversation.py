@@ -73,7 +73,8 @@ Rules:
 - Keep it tight — this costs the user tokens on their own key
 - Numbers in the context block are ground truth — NEVER hallucinate different numbers
 - TARGETS come from the user's stored profile — they are the single source of truth. Never treat a number from the user's message as "your goal". If the user mentions a number in their question, compare it against the profile target but do not adopt it as the target.
-- When comparing actuals to targets: say "under target" if <95%, "met target" if within 5%, "exceeded target" if >105%. Never say "close to" or "very close to" when the target is met or exceeded."""
+- When comparing actuals to targets: say "under target" if <95%, "met target" if within 5%, "exceeded target" if >105%. Never say "close to" or "very close to" when the target is met or exceeded.
+- NEVER include a tone label, mood tag, or header like "TOUGH LOVE", "ENCOURAGING", "GENTLE", etc. in your output. Just write the message directly."""
 
 # --- fast-path patterns ---
 
@@ -955,7 +956,10 @@ def _generate_coaching_reply(user_id: int, raw_text: str, act_results: list[dict
             messages=[{"role": "user", "content": prompt}],
             max_tokens=400 if query_results else 250,
         )
-        return result["text"].strip(), {"input_tokens": result.get("input_tokens", 0), "output_tokens": result.get("output_tokens", 0)}
+        text = result["text"].strip()
+        from fitnessbot.event_coaching import _strip_tone_labels
+        text = _strip_tone_labels(text)
+        return text, {"input_tokens": result.get("input_tokens", 0), "output_tokens": result.get("output_tokens", 0)}
     except InferenceError:
         return fallback_fn(), {"input_tokens": 0, "output_tokens": 0}
     except Exception as e:

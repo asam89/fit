@@ -159,11 +159,11 @@ If the prep window is short (<2 weeks), focus on what's realistically achievable
 
 MOTIVATION_SYSTEM = """You are a fitness coach with a complex, human personality — not a motivational poster. Generate a brief, personalized check-in message.
 
-EMOTIONAL RANGE — pick the right tone for the situation:
-- FIRED UP: when they're close to the event and training hard. Match their energy. Be the hype man. "6 workouts in 7 days. You're not hoping to be ready — you're making sure of it."
-- TOUGH: when they've been slacking — missed workouts, inconsistent logging, overeating. Don't be mean, but don't let them off the hook. "3 missed sessions this week. The tournament doesn't care about your excuses. Get in the gym today."
-- THOUGHTFUL: when they're grinding but burning out, or when sleep/recovery data looks bad. Pull back. "Your body's telling you something. 6 hours of sleep isn't enough to recover from what you're putting it through. Tonight: bed by 10, no negotiation."
-- REAL TALK: when the data shows a pattern they might not see. Connect the dots honestly. "You're training hard but eating 500 over target 4 of the last 7 days. The gym work won't outrun the kitchen. Pick one: tighten the diet or accept the weight stays."
+Adapt your tone to the situation:
+- When they're close to the event and training hard: match their energy and hype them up.
+- When they've been slacking (missed workouts, overeating): be direct and hold them accountable without being cruel.
+- When they're grinding but burning out or sleep/recovery data looks bad: pull back, show concern, prioritize recovery.
+- When the data shows a pattern they might not see: connect the dots honestly.
 
 Rules:
 - Reference their specific event and days remaining
@@ -171,7 +171,8 @@ Rules:
 - Mention their recent progress if data is provided
 - Keep it to 3-5 lines max
 - Never be generic. Never sound like a bot. Sound like someone who actually knows them.
-- End with a question or prompt that invites engagement"""
+- End with a question or prompt that invites engagement
+- NEVER include a tone label, mood tag, or header like "THOUGHTFUL", "FIRED UP", "TOUGH LOVE", etc. in your output. Just write the message directly — no preamble, no meta-commentary about your tone."""
 
 READINESS_SYSTEM = """You are a sport science coach assessing readiness for an upcoming event.
 
@@ -273,6 +274,59 @@ def _deterministic_prep_plan(title: str, event_date: str, sport_type: str | None
     }
 
 
+_TONE_LABEL_RE = re.compile(
+    r"^(?:(?:THOUGHTFUL|TOUGH(?:\s*LOVE)?|FIRED\s*UP|ENCOURAGING|GENTLE|CHALLENGING|REAL\s*TALK)"
+    r"(?:\s*[\(\[].*?[\)\]])?\s*(?:—|--|-|–|:)\s*)+",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _strip_tone_labels(text: str) -> str:
+    """Remove tone/mood labels that LLMs sometimes prepend to coaching messages."""
+    lines = text.split("\n")
+    cleaned = []
+    body_started = False
+    for line in lines:
+        stripped = line.strip()
+        if not body_started:
+            if not stripped:
+                continue
+            # Skip separator-only lines
+            if re.match(r"^-{2,}$", stripped):
+                continue
+            # Check if line is ONLY a tone label (no content after separator)
+            only_label = re.match(
+                r"^(?:THOUGHTFUL|TOUGH(?:\s*LOVE)?|FIRED\s*UP|ENCOURAGING|GENTLE|CHALLENGING|REAL\s*TALK)"
+                r"(?:\s*[\(\[].*?[\)\]])?$",
+                stripped,
+                re.IGNORECASE,
+            )
+            if only_label:
+                continue
+            # Check if line starts with tone label + separator + content
+            inline_label = re.match(
+                r"^(?:THOUGHTFUL|TOUGH(?:\s*LOVE)?|FIRED\s*UP|ENCOURAGING|GENTLE|CHALLENGING|REAL\s*TALK)"
+                r"(?:\s*[\(\[].*?[\)\]])?\s*(?:—|--|–|:)\s*",
+                stripped,
+                re.IGNORECASE,
+            )
+            if inline_label:
+                remainder = stripped[inline_label.end():]
+                if remainder:
+                    body_started = True
+                    cleaned.append(remainder)
+                continue
+            body_started = True
+            cleaned.append(line)
+        else:
+            cleaned.append(line)
+    text = "\n".join(cleaned).strip()
+    # Strip leading/trailing --- separators
+    text = re.sub(r"^-{1,3}\s*\n*", "", text).strip()
+    text = re.sub(r"\n---+\s*$", "", text).strip()
+    return text
+
+
 def build_motivation_checkin(event_goal: dict, user_id: int) -> str:
     """Generate a motivation check-in message for an active event goal."""
     from fitnessbot.inference.factory import get_inference
@@ -326,7 +380,7 @@ Recent activity: {recent_activity}
 {plan_context if plan_context else ''}
 Motivation angle: {hook}
 
-Pick the right emotional tone based on the data above and generate a check-in."""
+Generate a check-in message. Do NOT include any tone labels or headers — just the message."""
 
     try:
         infer = get_inference(user_id)
@@ -335,7 +389,9 @@ Pick the right emotional tone based on the data above and generate a check-in.""
             messages=[{"role": "user", "content": prompt}],
             max_tokens=200,
         )
-        return result["text"].strip()
+        text = result["text"].strip()
+        text = _strip_tone_labels(text)
+        return text
     except (InferenceError, Exception):
         return _deterministic_motivation(event_goal["title"], days_remaining, recent_activity)
 
