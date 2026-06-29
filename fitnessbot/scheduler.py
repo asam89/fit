@@ -136,44 +136,65 @@ def _build_stale_suggestion(user_id: int) -> str | None:
     return None
 
 
+_event_checkin_lock = asyncio.Lock()
+
 async def _dispatch_event_checkins():
-    """Run every 30 minutes. Send up to 3 coaching check-ins per day
-    with at least 4 hours between each (morning, afternoon, evening feel).
+    """Run every 30 minutes. Send 1 coaching check-in per day per event goal.
+    Uses a lock to prevent concurrent sends from overlapping scheduler ticks.
     """
-    from fitnessbot import db
-    from fitnessbot.event_coaching import build_motivation_checkin
-    from fitnessbot.briefings import _send_telegram
+    if _event_checkin_lock.locked():
+        logger.debug("Event checkin already running, skipping")
+        return
 
-    due = db.get_due_event_checkins(max_per_day=3, min_interval_hours=4)
-    for goal in due:
-        uid = goal["user_id"]
-        try:
-            tz_str = goal.get("timezone", "America/Toronto")
-            now = _user_now(tz_str)
-            # Only send during waking hours (8am-9pm local)
-            hour = now.hour
-            if hour < 8 or hour > 21:
-                continue
+    async with _event_checkin_lock:
+        from fitnessbot import db
+        from fitnessbot.event_coaching import build_motivation_checkin
+        from fitnessbot.briefings import _send_telegram
 
-            freq = goal.get("motivation_frequency", "daily")
-            if freq == "every_other_day":
-                local_today = now.date()
-                from datetime import date as date_cls
-                day_num = (local_today - date_cls(2026, 1, 1)).days
-                if day_num % 2 != 0:
+        due = db.get_due_event_checkins(max_per_day=1, min_interval_hours=20)
+        for goal in due:
+            uid = goal["user_id"]
+            try:
+                tz_str = goal.get("timezone", "America/Toronto")
+                now = _user_now(tz_str)
+                # Only send during waking hours (8am-9pm local)
+                hour = now.hour
+                if hour < 8 or hour > 21:
                     continue
 
-            text = build_motivation_checkin(goal, uid)
-            if text:
-                sent = await _send_telegram(uid, text)
-                if sent:
-                    # Store UTC timestamp for interval checking
-                    db.update_event_goal(goal["eg_id"], last_checkin_at=db.utcnow())
-                    # Log in briefing_log for per-day count tracking
-                    db.insert_briefing_log(uid, "event_checkin", text[:200])
-                    logger.info("Event check-in sent for user %s, event %s", uid, goal["title"])
-        except Exception as e:
-            logger.error("Event check-in failed for user %s: %s", uid, e, exc_info=True)
+                freq = goal.get("motivation_frequency", "daily")
+                if freq == "every_other_day":
+                    local_today = now.date()
+                    from datetime import date as date_cls
+                    day_num = (local_today - date_cls(2026, 1, 1)).days
+                    if day_num % 2 != 0:
+                        continue
+
+                # Double-check dedup right before sending (race guard)
+                from fitnessbot.tz import user_today as _ut, day_utc_range as _dur
+                local_today = _ut(uid)
+                utc_s, utc_e = _dur(local_today, uid)
+                already_sent = db.get_connection()
+                try:
+                    cnt = already_sent.execute(
+                        "SELECT COUNT(*) as c FROM briefing_log WHERE user_id = ? AND briefing_type = 'event_checkin' AND sent_at >= ? AND sent_at < ?",
+                        (uid, utc_s, utc_e),
+                    ).fetchone()["c"]
+                finally:
+                    already_sent.close()
+                if cnt >= 1:
+                    logger.debug("Event checkin already sent today for user %s, skipping", uid)
+                    continue
+
+                text = build_motivation_checkin(goal, uid)
+                if text:
+                    sent = await _send_telegram(uid, text)
+                    if sent:
+                        db.update_event_goal(goal["eg_id"], last_checkin_at=db.utcnow())
+                        db.insert_briefing_log(uid, "event_checkin", text[:200])
+                        logger.info("Event check-in sent for user %s, event %s", uid, goal["title"])
+            except Exception as e:
+                logger.error("Event check-in failed for user %s: %s", uid, e, exc_info=True)
 
 
 def setup_scheduler() -> AsyncIOScheduler:
