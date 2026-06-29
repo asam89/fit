@@ -137,7 +137,11 @@ def _build_stale_suggestion(user_id: int) -> str | None:
 
 
 async def _dispatch_event_checkins():
-    """Run every 30 minutes. Send motivation check-ins for active event goals."""
+    """Run every 30 minutes. Send motivation check-ins for active event goals.
+
+    Limits to ONE check-in per user-local-day by storing the local date
+    in last_checkin_at and comparing against the user's local today.
+    """
     from fitnessbot import db
     from fitnessbot.event_coaching import build_motivation_checkin
     from fitnessbot.briefings import _send_telegram
@@ -155,8 +159,9 @@ async def _dispatch_event_checkins():
 
             freq = goal.get("motivation_frequency", "daily")
             if freq == "every_other_day":
-                from datetime import date
-                day_num = (date.today() - date(2026, 1, 1)).days
+                local_today = now.date()
+                from datetime import date as date_cls
+                day_num = (local_today - date_cls(2026, 1, 1)).days
                 if day_num % 2 != 0:
                     continue
 
@@ -164,7 +169,9 @@ async def _dispatch_event_checkins():
             if text:
                 sent = await _send_telegram(uid, text)
                 if sent:
-                    db.update_event_goal(goal["eg_id"], last_checkin_at=db.utcnow())
+                    # Store local date so timezone-aware dedup works correctly
+                    local_ts = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    db.update_event_goal(goal["eg_id"], last_checkin_at=local_ts)
                     logger.info("Event check-in sent for user %s, event %s", uid, goal["title"])
         except Exception as e:
             logger.error("Event check-in failed for user %s: %s", uid, e, exc_info=True)
