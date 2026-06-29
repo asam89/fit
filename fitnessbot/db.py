@@ -2051,11 +2051,15 @@ def insert_briefing_log(user_id: int, briefing_type: str, content_summary: str, 
 
 
 def get_briefings_sent_today(user_id: int, briefing_type: str) -> int:
+    """Count briefings sent for the user's current local day (not UTC)."""
+    from fitnessbot.tz import user_today as _user_today_tz, day_utc_range as _day_utc_range
+    local_today = _user_today_tz(user_id)
+    utc_start, utc_end = _day_utc_range(local_today, user_id)
     conn = get_connection()
     try:
         row = conn.execute(
-            "SELECT COUNT(*) as c FROM briefing_log WHERE user_id = ? AND briefing_type = ? AND DATE(sent_at) = date('now')",
-            (user_id, briefing_type),
+            "SELECT COUNT(*) as c FROM briefing_log WHERE user_id = ? AND briefing_type = ? AND sent_at >= ? AND sent_at < ?",
+            (user_id, briefing_type, utc_start, utc_end),
         ).fetchone()
         return row["c"]
     finally:
@@ -2573,7 +2577,12 @@ def update_event_goal(eg_id: int, **kwargs) -> None:
 
 
 def get_due_event_checkins() -> list[dict]:
-    """Get all active event goals needing a motivation check-in today."""
+    """Get all active event goals needing a motivation check-in today.
+
+    Uses each user's timezone to determine whether a checkin has already
+    been sent for the current *local* day, preventing duplicate messages
+    when the UTC date rolls over before the user's local day ends.
+    """
     conn = get_connection()
     try:
         rows = conn.execute("""
@@ -2583,9 +2592,23 @@ def get_due_event_checkins() -> list[dict]:
             JOIN telegram_connections tc ON eg.user_id = tc.user_id AND tc.is_active = 1
             WHERE eg.status = 'active'
             AND eg.event_date >= date('now')
-            AND (eg.last_checkin_at IS NULL OR DATE(eg.last_checkin_at) < date('now'))
         """).fetchall()
-        return [dict(r) for r in rows]
+        # Filter in Python using each user's local date for dedup
+        from fitnessbot.tz import user_today as _user_today_tz
+        result = []
+        for r in rows:
+            row = dict(r)
+            uid = row["user_id"]
+            local_today = _user_today_tz(uid)
+            last = row.get("last_checkin_at")
+            if last is None:
+                result.append(row)
+            else:
+                # Compare last checkin date against user's local today
+                last_date = last[:10]  # "YYYY-MM-DD" prefix of ISO timestamp
+                if last_date < local_today:
+                    result.append(row)
+        return result
     finally:
         conn.close()
 
