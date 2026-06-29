@@ -43,6 +43,67 @@
   .tz-option{padding:6px 8px;border-radius:6px;font-size:12px;cursor:pointer;color:#14161D;transition:background .1s}
   .tz-option:hover{background:#F3F4F6}
   .tz-option.active{background:#EEF0FF;color:#2D52F5;font-weight:500}
+
+  /* ===== MOBILE OPTIMIZATIONS ===== */
+  @media (max-width: 639px) {
+    /* Tighter card padding on mobile */
+    .card { border-radius: 12px; }
+    .card.p-5 { padding: 16px; }
+    .card.p-6 { padding: 16px; }
+    .card.p-4 { padding: 14px; }
+
+    /* Header bar: stack actions */
+    .mobile-top-bar { flex-direction: column; align-items: flex-start; gap: 6px; }
+    .mobile-top-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+    /* Calorie ring: smaller on mobile */
+    .mobile-ring svg { width: 80px; height: 80px; }
+    .mobile-ring > div.relative { margin-top: -52px; margin-bottom: 10px; }
+    .mobile-ring .ring-value { font-size: 18px; }
+    .mobile-ring .ring-target { font-size: 9px; }
+
+    /* Status row: 2-col grid instead of flex */
+    .mobile-status-grid { display: grid !important; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .mobile-status-grid > .mobile-tdee-cell { grid-column: span 2; }
+
+    /* Weight stats: ensure 2-col on tiny screens */
+    .mobile-weight-stats { grid-template-columns: 1fr 1fr; gap: 12px; }
+    .mobile-weight-stats .text-2xl { font-size: 1.25rem; }
+
+    /* Training plan grid: 2 cols on mobile */
+    .mobile-plan-grid { grid-template-columns: 1fr 1fr !important; }
+
+    /* Meal rows: tighter */
+    .meal-row { padding-left: 0; padding-right: 0; }
+
+    /* Form inputs: larger tap targets */
+    input[type="number"], input[type="text"], select, textarea {
+      min-height: 40px;
+      font-size: 16px !important; /* prevents iOS zoom */
+    }
+
+    /* Macro layout on mobile: ring full-width, bars in 2-col grid below */
+    .mobile-macros-grid { grid-template-columns: 1fr 1fr !important; gap: 10px; }
+    .mobile-macros-grid > .mobile-ring { grid-column: span 2; }
+
+    /* Trends pills: scrollable row */
+    .mobile-pills { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; padding-bottom: 2px; }
+    .mobile-pills .pill { flex-shrink: 0; }
+
+    /* Month pills: wrap nicely */
+    .mobile-month-pills { gap: 6px; }
+    .mobile-month-pills > span { font-size: 11px; padding: 3px 8px; }
+
+    /* PB and BC forms: stack on mobile */
+    .mobile-form-stack { grid-template-columns: 1fr 1fr !important; }
+  }
+
+  /* Small phones (320-375px) */
+  @media (max-width: 374px) {
+    .mobile-weight-stats { gap: 8px; }
+    .mobile-weight-stats .text-2xl { font-size: 1.1rem; }
+    .card.p-5, .card.p-6 { padding: 12px; }
+  }
 </style>
 {% endblock %}
 {% block content %}
@@ -51,9 +112,9 @@
   <!-- ===== TODAY SUMMARY ===== -->
   <section id="today">
     <div class="card p-6">
-      <div class="flex items-baseline justify-between mb-1">
+      <div class="flex items-baseline justify-between mb-1 mobile-top-bar">
         <span class="eyebrow">Today</span>
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-3 mobile-top-actions">
           <button onclick="generateInvite()" class="text-[10px] text-accent hover:text-accent-press font-medium flex items-center gap-1" title="Generate invite link">
             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
             Invite
@@ -78,9 +139,9 @@
       <p class="text-xs text-accent font-medium mt-2 italic">{{ today_summary.eating_focus }}</p>
       {% endif %}
 
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5 mobile-macros-grid">
         <!-- Calories ring -->
-        <div class="text-center">
+        <div class="text-center mobile-ring">
           <svg class="w-24 h-24 mx-auto" viewBox="0 0 36 36">
             <path class="ring-track" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
             <path class="ring-fill" stroke="{% if pct.calories > 100 %}#E04338{% else %}#2D52F5{% endif %}"
@@ -88,8 +149,8 @@
                   stroke-dasharray="{{ pct.calories }}, 100"/>
           </svg>
           <div class="relative -mt-[62px] mb-[14px]">
-            <div class="text-xl font-bold font-display">{{ totals.calories|int }}</div>
-            <div class="text-[10px] text-faint font-mono">/ {{ targets.calories }}</div>
+            <div class="text-xl font-bold font-display ring-value">{{ totals.calories|int }}</div>
+            <div class="text-[10px] text-faint font-mono ring-target">/ {{ targets.calories }}</div>
           </div>
           <div class="text-xs text-muted mt-1">Calories</div>
         </div>
@@ -183,7 +244,7 @@
       </div>
 
       <!-- Status row -->
-      <div class="flex flex-wrap gap-4 mt-5 pt-4 border-t border-gray-100">
+      <div class="flex flex-wrap gap-4 mt-5 pt-4 border-t border-gray-100 mobile-status-grid">
         <div>
           <div class="text-xs text-faint font-mono uppercase tracking-wider mb-1">Meals today</div>
           <div class="text-lg font-display font-bold">{{ meal_count }}</div>
@@ -192,27 +253,25 @@
           <div class="text-xs text-faint font-mono uppercase tracking-wider mb-1">Remaining</div>
           <div class="text-lg font-display font-bold {% if remaining_cal < 0 %}text-miss{% else %}text-good{% endif %}">{{ remaining_cal|int }} <span class="text-sm font-normal text-muted">cal</span></div>
         </div>
-        <div>
+        <div class="mobile-tdee-cell">
           <div class="text-xs text-faint font-mono uppercase tracking-wider mb-1">TDEE</div>
           <div class="text-lg font-display font-bold">{{ targets.tdee }} <span class="text-sm font-normal text-muted">cal</span></div>
           <div class="text-[10px] text-faint">{{ targets.method }}{% if targets.goal_delta %} · {{ targets.goal_type }} ({{ '+' if targets.goal_delta > 0 }}{{ targets.goal_delta }}){% else %} · {{ targets.goal_type }}{% endif %}</div>
-          <div class="mt-1">
-            <select id="activity-level-select" onchange="updateActivityLevel(this.value)" class="text-[11px] text-muted bg-card border border-border rounded px-1.5 py-0.5 cursor-pointer">
+          <div class="mt-1 flex items-center gap-2 flex-wrap">
+            <select id="activity-level-select" onchange="updateActivityLevel(this.value)" class="text-[11px] text-muted bg-white border border-gray-200 rounded px-1.5 py-0.5 cursor-pointer">
               <option value="sedentary" {% if activity_level == 'sedentary' %}selected{% endif %}>Sedentary (1.2×)</option>
               <option value="lightly_active" {% if activity_level == 'lightly_active' %}selected{% endif %}>Lightly Active (1.375×)</option>
               <option value="moderately_active" {% if activity_level == 'moderately_active' %}selected{% endif %}>Moderately Active (1.55×)</option>
               <option value="very_active" {% if activity_level == 'very_active' %}selected{% endif %}>Very Active (1.725×)</option>
               <option value="extra_active" {% if activity_level == 'extra_active' %}selected{% endif %}>Extra Active (1.9×)</option>
             </select>
+            <button id="recalc-btn" onclick="recalcTargets()" class="text-xs font-medium text-accent hover:text-accent-press bg-accent-soft px-3 py-1.5 rounded-lg transition-colors" title="Recalculate targets from your latest body metrics">
+              ↻ Recalculate
+            </button>
           </div>
         </div>
-        <div class="self-center">
-          <button id="recalc-btn" onclick="recalcTargets()" class="text-xs font-medium text-accent hover:text-accent-press bg-accent-soft px-3 py-1.5 rounded-lg transition-colors" title="Recalculate targets from your latest body metrics">
-            ↻ Recalculate
-          </button>
-        </div>
         {% if not connection %}
-        <div class="ml-auto self-center">
+        <div class="sm:ml-auto self-center">
           <a href="/settings" class="text-xs font-medium text-accent hover:text-accent-press">Connect Telegram →</a>
         </div>
         {% endif %}
@@ -244,7 +303,7 @@
 
       {% if weight_analysis.has_data %}
       <!-- Weight numbers row -->
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4 mobile-weight-stats">
         <div>
           <div class="text-xs text-faint mb-1">Current</div>
           <div class="text-2xl font-display font-bold">{{ weight_analysis.current_smoothed }}<span class="text-sm font-normal text-muted ml-1">lbs</span></div>
@@ -482,7 +541,7 @@
   <section id="month">
     <div class="card p-4">
       <div class="eyebrow mb-2">This month</div>
-      <div class="flex flex-wrap gap-2">
+      <div class="flex flex-wrap gap-2 mobile-month-pills">
         <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-accent-soft text-accent text-xs font-medium">
           {{ month_summary.avg_calories }} cal/day avg
         </span>
@@ -516,7 +575,7 @@
         <div><span class="text-faint text-xs block">Fat</span><span id="tdFat" class="font-bold font-display">{{ targets.fat }}g</span></div>
         <div><span class="text-faint text-xs block">Weight goal</span><span id="tdWeightGoal" class="font-bold font-display">{{ weight_goal or '—' }}</span></div>
       </div>
-      <form id="targetForm" class="hidden mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
+      <form id="targetForm" class="hidden mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3 mobile-form-stack">
         <div>
           <label class="block text-xs text-faint mb-1">Calories</label>
           <input type="number" name="calories" value="{{ targets.calories }}" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none">
@@ -557,7 +616,7 @@
         <svg id="bcChevron" class="w-4 h-4 text-faint transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
       </div>
       <div id="bcExpanded" class="hidden mt-3">
-        <form id="bcForm" onsubmit="saveBodyComp(event)" class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <form id="bcForm" onsubmit="saveBodyComp(event)" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mobile-form-stack">
           <div>
             <label class="block text-[10px] text-faint uppercase tracking-wider mb-1">Body Fat %</label>
             <input id="bcBodyFat" type="number" step="0.1" min="1" max="60" placeholder="e.g. 18.5" value="{{ body_comp.body_fat_pct if body_comp and body_comp.body_fat_pct else '' }}" class="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-accent">
@@ -614,7 +673,7 @@
 
       <!-- Add PB Modal -->
       <div id="pbAddModal" class="hidden mt-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mobile-form-stack">
           <input id="pbExercise" type="text" placeholder="Exercise (e.g. bench press)" class="col-span-2 sm:col-span-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-accent">
           <input id="pbValue" type="text" placeholder="Value (e.g. 225)" class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-accent">
           <input id="pbUnit" type="text" placeholder="Unit (lbs, min, etc)" class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-accent">
@@ -640,7 +699,7 @@
         </div>
       </div>
       <div id="planAdherence" class="text-xs text-muted mb-3"></div>
-      <div id="planGrid" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 text-xs"></div>
+      <div id="planGrid" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2 text-xs mobile-plan-grid"></div>
       <div class="flex gap-2 mt-3 pt-3 border-t border-gray-100">
         <button id="planAddBtn" class="text-xs font-medium text-accent hover:text-accent-press">+ Add activity</button>
         <button id="planCopyBtn" class="text-xs text-faint hover:text-muted ml-auto">Copy last week</button>
@@ -771,7 +830,7 @@
     <div class="card p-5">
       <div class="flex items-center justify-between mb-4">
         <span class="eyebrow">Trends</span>
-        <div class="flex gap-1">
+        <div class="flex gap-1 mobile-pills">
           <button class="pill active" data-range="week">Week</button>
           <button class="pill" data-range="month">Month</button>
           <button class="pill" data-range="quarter">Quarter</button>
@@ -792,7 +851,7 @@
   <section id="consistency">
     <div class="card p-5">
       <div class="eyebrow mb-3">Consistency — last 30 days</div>
-      <div id="heatmap"></div>
+      <div id="heatmap" class="overflow-x-auto -mx-2 px-2"></div>
     </div>
   </section>
 
@@ -1265,7 +1324,7 @@ document.querySelectorAll('[data-range]').forEach(btn=>{
     dates.push({ds:`${y}-${m}-${dd}`,day:d.getDate(),dow:d.getDay(),month:d.getMonth(),monthName:MONTHS[d.getMonth()]});
   }
 
-  let html='<div style="display:grid;grid-template-columns:repeat('+DAYS+',1fr);gap:3px;text-align:center">';
+  let html='<div style="display:grid;grid-template-columns:repeat('+DAYS+',1fr);gap:3px;text-align:center;min-width:500px">';
   // Month labels row
   let prevMonth=-1;
   dates.forEach(d=>{
