@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from fitnessbot.config import Config
 from fitnessbot import db
-from fitnessbot.metrics import get_weight_summary
+from fitnessbot.metrics import get_weight_summary, build_weight_analysis
 from fitnessbot.nutrition import get_nutrition_targets, build_today_summary, build_month_summary
 from fitnessbot.web.auth import get_current_user
 from fitnessbot.inference.base import InferenceError
@@ -153,6 +153,7 @@ async def dashboard_home(request: Request):
     today_summary = build_today_summary(uid)
     month_summary = build_month_summary(uid)
     weight_goal = db.get_weight_goal(uid)
+    weight_analysis = build_weight_analysis(uid)
 
     return templates.TemplateResponse(
         "dashboard.html",
@@ -185,6 +186,7 @@ async def dashboard_home(request: Request):
             "body_comp": body_comp,
             "body_comp_history": body_comp_history,
             "activity_level": user.get("activity_level", "moderately_active"),
+            "weight_analysis": weight_analysis,
         },
     )
 
