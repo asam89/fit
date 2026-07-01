@@ -307,6 +307,22 @@ def _act_workout(intent: dict, user_id: int) -> dict:
     activity = intent.get("activity", "workout")
     duration = intent.get("duration_min")
     notes = intent.get("notes", "")
+
+    # Try to reconcile with training plan first — if there's a matching planned
+    # item for today, mark it complete (which also creates the health_data entry).
+    from fitnessbot import training_plan
+    plan_result = training_plan.complete_by_title(
+        user_id, activity, int(float(duration)) if duration else None
+    )
+    if plan_result:
+        return {
+            "action": "plan_completed",
+            "title": plan_result["title"],
+            "activity_type": plan_result["activity_type"],
+            "item_id": plan_result["item_id"],
+        }
+
+    # No matching plan item — log as standalone workout in health_data
     data = {"type": activity}
     if duration:
         data["duration_min"] = int(float(duration))

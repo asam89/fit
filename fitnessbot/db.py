@@ -2515,15 +2515,24 @@ def get_workout_history(user_id: int, days: int = 7) -> list[dict]:
     Entries logged within the same 90-minute window on the same date are
     treated as a single session.  The session inherits the type/activity
     of the first entry and aggregates duration.
+
+    Uses user's timezone for the lookback cutoff to match dashboard display.
     """
+    from fitnessbot.tz import user_today, day_utc_range
+    from datetime import datetime as _dt, timedelta as _td
+    today = user_today(user_id)
+    cutoff_date = (_dt.strptime(today, "%Y-%m-%d") - _td(days=days)).strftime("%Y-%m-%d")
+    # Use the start of the cutoff day in user's timezone (converted to UTC)
+    utc_start, _ = day_utc_range(cutoff_date, user_id)
+
     conn = get_connection()
     try:
         rows = conn.execute(
             """SELECT recorded_at, data_json, notes
                FROM health_data WHERE user_id = ? AND data_type = 'workout'
-               AND DATE(recorded_at) >= date('now', ?)
+               AND recorded_at >= ?
                ORDER BY recorded_at ASC""",
-            (user_id, f"-{days} days"),
+            (user_id, utc_start),
         ).fetchall()
         return _dedupe_workout_rows(rows)
     finally:
@@ -3256,13 +3265,15 @@ def get_friend_summary(user_id: int, viewer_id: int) -> dict:
             summary["goal"] = dict(goal) if goal else None
 
         if settings.get("share_progress"):
-            # Training plan adherence this week
-            from datetime import timedelta
-            now = datetime.now(timezone.utc)
-            monday = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d")
+            # Training plan adherence this week (user-timezone-aware)
+            from fitnessbot.tz import user_today as _ut_prog
+            from fitnessbot.training_plan import _monday_of_week as _mow_prog
+            from datetime import date as _date_prog
+            prog_today = _ut_prog(user_id)
+            prog_monday = _mow_prog(_date_prog.fromisoformat(prog_today))
             plan_items = conn.execute(
                 "SELECT COUNT(*) as total, SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as done FROM training_plan_items WHERE user_id=? AND date >= ?",
-                (user_id, monday),
+                (user_id, prog_monday),
             ).fetchone()
             summary["plan_adherence"] = {"done": plan_items["done"] or 0, "total": plan_items["total"] or 0} if plan_items else None
 
@@ -3283,20 +3294,23 @@ def get_friend_summary(user_id: int, viewer_id: int) -> dict:
 
         if settings.get("share_workouts"):
             from datetime import timedelta
-            now = datetime.now(timezone.utc)
-            monday = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d")
-            workouts = conn.execute(
-                "SELECT COUNT(*) as c FROM exercise WHERE user_id=? AND started_at >= ?",
+            from fitnessbot.tz import user_today as _ut_friend
+            from fitnessbot.training_plan import _monday_of_week
+            from datetime import date as _date_cls
+            friend_today = _ut_friend(user_id)
+            monday = _monday_of_week(_date_cls.fromisoformat(friend_today))
+            # Count from training_plan_items (completed this week)
+            plan_count = conn.execute(
+                "SELECT COUNT(*) as c FROM training_plan_items WHERE user_id=? AND date >= ? AND status='completed' AND activity_type != 'rest'",
                 (user_id, monday),
             ).fetchone()
-            count = workouts["c"] if workouts else 0
-            if count == 0:
-                # Fallback: check daily_workouts (completed ones)
-                dw = conn.execute(
-                    "SELECT COUNT(*) as c FROM daily_workouts WHERE user_id=? AND scheduled_date >= ? AND completed=1",
-                    (user_id, monday),
-                ).fetchone()
-                count = dw["c"] if dw else 0
+            count = plan_count["c"] if plan_count else 0
+            # Also count standalone workouts from health_data not linked to a plan
+            hd_count = conn.execute(
+                "SELECT COUNT(*) as c FROM health_data WHERE user_id=? AND data_type='workout' AND DATE(recorded_at) >= ? AND data_json NOT LIKE '%\"source\": \"training_plan\"%'",
+                (user_id, monday),
+            ).fetchone()
+            count += hd_count["c"] if hd_count else 0
             summary["workouts_this_week"] = count
 
         if settings.get("share_weight"):

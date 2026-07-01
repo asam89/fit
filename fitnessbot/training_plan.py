@@ -190,30 +190,34 @@ def complete_item(item_id: int, user_id: int, actual_duration_min: int | None = 
 
 
 def _reconcile_exercise(user_id: int, item: dict, duration: int | None, conn) -> int | None:
-    """Link to existing exercise or create one. Avoids duplicates."""
+    """Link to existing health_data workout entry or create one. Avoids duplicates."""
     item_date = item["date"]
     activity = item["activity_type"]
+    title = item.get("title", "")
 
+    # Check for existing workout logged on the same date matching activity type or title
     existing = conn.execute(
-        """SELECT exercise_id FROM health_data
+        """SELECT hd_id FROM health_data
            WHERE user_id = ? AND data_type = 'workout' AND DATE(recorded_at) = ?
-           AND data_json LIKE ?""",
-        (user_id, item_date, f'%"{activity}"%'),
+           AND (data_json LIKE ? OR data_json LIKE ?)""",
+        (user_id, item_date, f'%"{activity}"%', f'%"{title}"%'),
     ).fetchone()
 
     if existing:
-        return existing["exercise_id"] if "exercise_id" in existing.keys() else None
+        return existing["hd_id"]
 
-    # Create lightweight exercise entry
+    # Create lightweight exercise entry in health_data
+    from fitnessbot.tz import user_now
+    now_iso = user_now(user_id).strftime("%Y-%m-%dT%H:%M:%SZ")
     data_json = json.dumps({
-        "activity": item["title"],
+        "activity": title,
         "type": activity,
         "duration_min": duration,
         "source": "training_plan",
     })
     cursor = conn.execute(
         "INSERT INTO health_data (user_id, data_type, data_json, recorded_at) VALUES (?, 'workout', ?, ?)",
-        (user_id, data_json, item_date + "T12:00:00Z"),
+        (user_id, data_json, now_iso),
     )
     conn.commit()
     return cursor.lastrowid
