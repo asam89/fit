@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from fitnessbot.web.auth import get_current_user
 from fitnessbot import training_plan
+from fitnessbot.health_benefits import get_daily_benefits, get_weekly_benefits
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,19 @@ async def get_plan(request: Request):
 
     ws = date.fromisoformat(week_start)
     we = ws + timedelta(days=6)
+
+    # Enrich completed items with estimated calories burned
+    from fitnessbot.health_benefits import get_activity_benefits, _get_user_weight_kg
+    weight_kg = _get_user_weight_kg(uid)
+    for item in items:
+        if item.get("activity_type") != "rest":
+            activity_name = item.get("title") or item.get("activity_type", "workout")
+            duration = item.get("planned_duration_min")
+            benefits = get_activity_benefits(activity_name, duration, weight_kg)
+            item["est_calories_burned"] = benefits["calories_burned"]
+            item["benefit_type"] = benefits["benefit_type"]
+            item["benefit_icon"] = benefits["benefit_icon"]
+            item["intensity"] = benefits["intensity"]
 
     return JSONResponse({
         "week_start": week_start,
@@ -112,3 +126,25 @@ async def copy_last_week(request: Request):
 
     count = training_plan.copy_last_week(user["user_id"], week_start)
     return JSONResponse({"copied": count, "week_start": week_start})
+
+
+@router.get("/api/health-benefits/daily")
+async def daily_health_benefits(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+
+    date_str = request.query_params.get("date")
+    result = get_daily_benefits(user["user_id"], date_str)
+    return JSONResponse(result)
+
+
+@router.get("/api/health-benefits/weekly")
+async def weekly_health_benefits(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "Not authenticated"}, status_code=401)
+
+    week_start = request.query_params.get("week")
+    result = get_weekly_benefits(user["user_id"], week_start)
+    return JSONResponse(result)
