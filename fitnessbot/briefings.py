@@ -221,6 +221,21 @@ def build_evening_wrap(user_id: int) -> str:
         lines.append("")
         lines.append(adherence_text)
 
+    # Health benefits summary for today's workouts
+    try:
+        from fitnessbot.health_benefits import get_daily_benefits
+        daily_benefits = get_daily_benefits(user_id, today)
+        if daily_benefits["session_count"] > 0:
+            lines.append("")
+            lines.append(f"\U0001f3cb Activity: {daily_benefits['session_count']} session{'s' if daily_benefits['session_count'] > 1 else ''}, {daily_benefits['total_duration_min']} min, ~{daily_benefits['total_calories_burned']} cal burned")
+            if daily_benefits.get("primary_benefit_label"):
+                lines.append(f"  {daily_benefits['primary_benefit_icon']} {daily_benefits['primary_benefit_label']}")
+            muscles = [m for m in daily_benefits.get("muscle_groups_worked", []) if m != "full body"]
+            if muscles:
+                lines.append(f"  Muscles: {', '.join(muscles)}")
+    except Exception:
+        pass
+
     # Coaching tone based on how the day went
     cal_pct = totals["calories"] / targets["calories"] if targets["calories"] else 0
     prot_pct = totals["protein"] / targets["protein"] if targets["protein"] else 0
@@ -284,6 +299,23 @@ def build_weekly_rollup(user_id: int) -> str:
         adherence = training_plan.compute_adherence(items)
         lines.append("")
         lines.append(f"Training  {adherence['label']} planned activities")
+
+    # Weekly health benefits summary
+    try:
+        from fitnessbot.health_benefits import get_weekly_benefits
+        weekly = get_weekly_benefits(user_id, ws)
+        if weekly["total_sessions"] > 0:
+            lines.append("")
+            lines.append(f"\U0001f3cb Weekly activity: {weekly['active_days']}/7 active days, {weekly['total_sessions']} sessions, ~{weekly['total_calories_burned']:,} cal burned")
+            for bt, bd in sorted(weekly["benefit_breakdown"].items(), key=lambda x: -x[1]["duration"]):
+                from fitnessbot.health_benefits import BENEFIT_ICONS, BENEFIT_LABELS
+                icon = BENEFIT_ICONS.get(bt, "")
+                label = BENEFIT_LABELS.get(bt, bt)
+                lines.append(f"  {icon} {label}: {bd['count']} session{'s' if bd['count'] > 1 else ''}, ~{bd['calories']} cal")
+            if weekly.get("insight"):
+                lines.append(f"\n{weekly['insight']}")
+    except Exception:
+        pass
 
     lines.append("")
     lines.append(f"[View dashboard]({Config.BASE_URL}/dashboard)")
