@@ -174,7 +174,7 @@ def get_activity_benefits(activity_str: str, duration_min: int | None, weight_kg
     Returns dict with calories_burned, benefit_type, muscle_groups, and descriptions.
     """
     met, benefit_type, muscles = _match_activity(activity_str)
-    duration = duration_min or 30  # default 30 min if not specified
+    duration = int(duration_min) if duration_min and int(duration_min) > 0 else 30
 
     calories = calc_calories_burned(met, weight_kg, duration)
 

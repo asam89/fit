@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 NLU_SYSTEM = """You are an intent classifier for a fitness tracking bot. Given a user message, extract ALL intents and structured data.
 
 Return ONLY a JSON object with key "intents" — an array of objects, each with:
-- "type": one of meal_log, health_metric, workout_log, profile_update, goal_update, plan_set, plan_complete, event_goal, readiness_check, query, correction, general
+- "type": one of meal_log, health_metric, workout_log, profile_update, goal_update, plan_set, plan_complete, event_goal, readiness_check, tone_change, query, correction, general
 - "confidence": 0.0-1.0
 - Fields specific to the type:
   - meal_log: "items" (array of {name, qty, unit}), "meal_type" (breakfast/lunch/dinner/snack), "when" (now/this_morning/last_night)
@@ -40,12 +40,14 @@ Return ONLY a JSON object with key "intents" — an array of objects, each with:
   - plan_complete: "title_hint" (what activity to mark done, e.g. "basketball", "legs"), "actual_duration": int|null
   - event_goal: "title" (event name, e.g. "basketball tournament", "half marathon"), "date_text" (raw date mention, e.g. "July 17th", "in 30 days"), "description" (what the user wants help with)
   - readiness_check: "event_hint" (which event they're asking about, or empty for most recent)
+  - tone_change: "tone" (supportive/neutral/blunt) — when user asks to change how feedback is delivered (e.g. "be more blunt", "go easier on me", "be supportive")
   - query: "question"
   - correction: "what" (description of what to fix), "new_value"
   - general: "text"
 
 Use event_goal when the user mentions an upcoming event, competition, race, or challenge with a date and wants preparation help, motivation, or a plan.
 Use readiness_check when the user asks if they're ready/prepared for an upcoming event.
+Use tone_change when the user wants to change the coaching feedback style (blunt/tough, supportive/gentle, balanced/neutral).
 
 Multi-data messages should produce multiple intents. Be concise.
 If confidence < 0.6, set "ambiguous": true and "clarification": "short question to ask".
@@ -80,6 +82,11 @@ _WORKOUT_EXPLAINER_PAT = re.compile(
 )
 _WORKOUT_CATEGORY_PAT = re.compile(
     r"\b(moving better|mobility|hip mobility|core strength|core|strength)\b",
+    re.I,
+)
+_TONE_CHANGE_PAT = re.compile(
+    r"\b(?:be more|be|go|switch to|make it|i (?:want|prefer|like)|give me)\s+"
+    r"(?:more\s+)?(blunt|tough|harsh|direct|no.?bs|supportive|gentle|kind|encouraging|soft|easy|neutral|balanced)\b",
     re.I,
 )
 
@@ -140,6 +147,18 @@ def _fast_path_intents(text: str, pending: dict | None) -> list[dict] | None:
     # Readiness check fast path
     if is_readiness_check(stripped):
         return [{"type": "readiness_check", "event_hint": stripped, "confidence": 0.95}]
+
+    # Tone change fast path
+    tone_m = _TONE_CHANGE_PAT.search(stripped)
+    if tone_m:
+        raw_tone = tone_m.group(1).lower()
+        if raw_tone in ("blunt", "tough", "harsh", "direct") or "no" in raw_tone:
+            tone = "blunt"
+        elif raw_tone in ("supportive", "gentle", "kind", "encouraging", "soft", "easy"):
+            tone = "supportive"
+        else:
+            tone = "neutral"
+        return [{"type": "tone_change", "tone": tone, "confidence": 0.95}]
 
     return None
 
@@ -210,6 +229,8 @@ def _act_on_intents(intents: list[dict], user_id: int, raw_text: str) -> list[di
                 r = _act_event_goal(intent, user_id)
             elif itype == "readiness_check":
                 r = _act_readiness_check(intent, user_id)
+            elif itype == "tone_change":
+                r = _act_tone_change(intent, user_id)
             elif itype == "query":
                 r = _act_query(user_id, intent.get("question", ""))
             elif itype == "correction":
@@ -339,6 +360,16 @@ def _act_profile(intent: dict, user_id: int) -> dict:
         db.update_user(user_id, **{db_field: value})
         return {"action": "profile_updated", "field": field, "value": value}
     return {"action": "profile_noted", "field": field, "value": value}
+
+
+def _act_tone_change(intent: dict, user_id: int) -> dict:
+    """Update the user's feedback tone preference."""
+    tone = intent.get("tone", "neutral")
+    if tone not in ("supportive", "neutral", "blunt"):
+        tone = "neutral"
+    db.update_user(user_id, feedback_tone_preference=tone)
+    labels = {"supportive": "supportive", "neutral": "neutral", "blunt": "blunt"}
+    return {"action": "tone_changed", "tone": tone, "label": labels[tone]}
 
 
 def _act_goal(intent: dict, user_id: int) -> dict:
@@ -930,6 +961,9 @@ def _deterministic_confirmation(act_results: list[dict], user_id: int) -> str:
                 parts.append(f"\u2705 Logged {ex}: {val}{' ' + u if u else ''}")
         elif action == "pb_failed":
             parts.append(f"Couldn't log PR: {r.get('note', 'try again')}")
+        elif action == "tone_changed":
+            tone_label = r.get("label", r.get("tone", "neutral"))
+            parts.append(f"Got it — coaching style set to {tone_label}. I'll adjust how I talk to you.")
         elif action == "workout_logged_no_plan":
             parts.append(f"Logged {r['activity']}" + (f" ({r['duration_min']}min)" if r.get('duration_min') else "") + ". No matching plan item — want me to add it?")
             _append_workout_benefits(parts, r.get('activity', 'workout'), r.get('duration_min'), user_id)
@@ -1138,7 +1172,7 @@ async def process_message(user_id: int, text: str, channel: str = "text") -> str
     writes_json = json.dumps([{"type": r.get("intent_type"), "action": r.get("action")} for r in act_results])
 
     # 3. RESPOND
-    has_real_writes = any(r.get("action", "").endswith("logged") or r.get("action") in ("correction_applied", "profile_updated", "query", "event_goal_created", "readiness_assessed") for r in act_results)
+    has_real_writes = any(r.get("action", "").endswith("logged") or r.get("action") in ("correction_applied", "profile_updated", "query", "event_goal_created", "readiness_assessed", "tone_changed") for r in act_results)
 
     if has_real_writes:
         reply, resp_tokens = _generate_coaching_reply(user_id, text, act_results)
@@ -1146,6 +1180,19 @@ async def process_message(user_id: int, text: str, channel: str = "text") -> str
         total_tokens["output_tokens"] += resp_tokens.get("output_tokens", 0)
     else:
         reply = _deterministic_confirmation(act_results, user_id)
+
+    # Always append health benefit line for workout actions (ensures visibility)
+    workout_actions = [r for r in act_results if r.get("action") in ("workout_logged", "plan_completed", "workout_logged_no_plan")]
+    if workout_actions and has_real_writes:
+        benefit_parts = []
+        for r in workout_actions:
+            activity = r.get("activity") or r.get("title") or r.get("activity_type", "workout")
+            duration = r.get("duration_min")
+            _append_workout_benefits(benefit_parts, activity, duration, user_id)
+        if benefit_parts:
+            # Only append if LLM reply doesn't already contain cal info
+            if "cal burned" not in reply.lower():
+                reply += "\n\n" + "\n".join(benefit_parts)
 
     # Append dashboard link
     from fitnessbot.config import Config

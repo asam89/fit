@@ -157,3 +157,46 @@ class TestWorkoutExplainerDetection:
         from fitnessbot.bot.conversation import _is_workout_explainer_query
         assert not _is_workout_explainer_query("I did 30 pushups")
         assert not _is_workout_explainer_query("how am I doing")
+
+
+class TestToneChangeDetection:
+    """Test natural language tone change detection."""
+
+    def test_detects_blunt_requests(self):
+        from fitnessbot.bot.conversation import _TONE_CHANGE_PAT
+        assert _TONE_CHANGE_PAT.search("be more blunt with me")
+        assert _TONE_CHANGE_PAT.search("be tough on me")
+        assert _TONE_CHANGE_PAT.search("I want direct feedback")
+        assert _TONE_CHANGE_PAT.search("give me no-bs feedback")
+
+    def test_detects_supportive_requests(self):
+        from fitnessbot.bot.conversation import _TONE_CHANGE_PAT
+        assert _TONE_CHANGE_PAT.search("be more gentle")
+        assert _TONE_CHANGE_PAT.search("go easy on me")
+        assert _TONE_CHANGE_PAT.search("be supportive")
+        assert _TONE_CHANGE_PAT.search("I prefer encouraging feedback")
+
+    def test_detects_neutral_requests(self):
+        from fitnessbot.bot.conversation import _TONE_CHANGE_PAT
+        assert _TONE_CHANGE_PAT.search("be balanced")
+        assert _TONE_CHANGE_PAT.search("switch to neutral")
+
+    def test_rejects_non_tone(self):
+        from fitnessbot.bot.conversation import _TONE_CHANGE_PAT
+        assert not _TONE_CHANGE_PAT.search("I ate a salad")
+        assert not _TONE_CHANGE_PAT.search("how am I doing today")
+
+    def test_fast_path_maps_to_correct_tone(self):
+        from fitnessbot.bot.conversation import _fast_path_intents
+        result = _fast_path_intents("be more blunt with me", None)
+        assert result is not None
+        assert result[0]["type"] == "tone_change"
+        assert result[0]["tone"] == "blunt"
+
+        result = _fast_path_intents("go easy on me", None)
+        assert result is not None
+        assert result[0]["tone"] == "supportive"
+
+        result = _fast_path_intents("switch to neutral", None)
+        assert result is not None
+        assert result[0]["tone"] == "neutral"
