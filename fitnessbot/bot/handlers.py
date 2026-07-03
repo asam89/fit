@@ -421,6 +421,41 @@ def register_handlers(app: Application, user_id: int) -> None:
             logger.error("Photo processing error: %s\n%s", e, traceback.format_exc())
             await update.message.reply_text("Error analyzing the photo. Try again or type what you ate instead.")
 
+    async def cmd_tone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Let the user pick their coaching feedback tone."""
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        user = db.get_user_by_id(user_id)
+        current = (user.get("feedback_tone_preference") or "neutral") if user else "neutral"
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("💪 Supportive", callback_data="tone:supportive"),
+                InlineKeyboardButton("⚖️ Neutral", callback_data="tone:neutral"),
+                InlineKeyboardButton("🔥 Blunt", callback_data="tone:blunt"),
+            ]
+        ])
+        await update.message.reply_text(
+            f"Your current coaching style: *{current}*\n\n"
+            "Choose how you want feedback delivered:\n"
+            "• *Supportive* — encouragement first, gentle corrections\n"
+            "• *Neutral* — balanced, direct but not harsh\n"
+            "• *Blunt* — no sugarcoating, straight accountability",
+            reply_markup=keyboard,
+            parse_mode="Markdown",
+        )
+
+    async def handle_tone_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        data = query.data
+        if not data or not data.startswith("tone:"):
+            return
+        await query.answer()
+        tone = data.split(":")[1]
+        if tone not in ("supportive", "neutral", "blunt"):
+            return
+        db.update_user(user_id, feedback_tone_preference=tone)
+        labels = {"supportive": "💪 Supportive", "neutral": "⚖️ Neutral", "blunt": "🔥 Blunt"}
+        await query.edit_message_text(f"Coaching style set to {labels[tone]}. I'll adjust how I talk to you.")
+
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("today", cmd_today))
     app.add_handler(CommandHandler("weight", cmd_weight))
@@ -430,9 +465,11 @@ def register_handlers(app: Application, user_id: int) -> None:
     app.add_handler(CommandHandler("plan", cmd_plan))
     app.add_handler(CommandHandler("invite", cmd_invite))
     app.add_handler(CommandHandler("sync", cmd_sync))
+    app.add_handler(CommandHandler("tone", cmd_tone))
     app.add_handler(CallbackQueryHandler(handle_plan_callback, pattern=r"^plan_done:"))
     app.add_handler(CallbackQueryHandler(handle_meal_type_callback, pattern=r"^meal_type:"))
     app.add_handler(CallbackQueryHandler(handle_meal_delete_callback, pattern=r"^meal_del:"))
+    app.add_handler(CallbackQueryHandler(handle_tone_callback, pattern=r"^tone:"))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_sync_document))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))

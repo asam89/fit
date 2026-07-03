@@ -8,6 +8,10 @@ from datetime import datetime, timezone
 
 from fitnessbot import db
 from fitnessbot.ai.food_parser import parse_meal, log_meal_from_parsed
+from fitnessbot.ai.prompts import (
+    compose_prompt, TASK_COACHING_REPLY, TASK_QUERY_RESPONSE,
+    TASK_GOAL_FIT_CHECK, TASK_WORKOUT_EXPLAINER,
+)
 from fitnessbot.event_coaching import (
     is_event_goal_message, is_readiness_check, parse_event_date,
     detect_sport_type, build_prep_plan, build_readiness_assessment,
@@ -47,34 +51,9 @@ Multi-data messages should produce multiple intents. Be concise.
 If confidence < 0.6, set "ambiguous": true and "clarification": "short question to ask".
 """
 
-RESPOND_SYSTEM = """You are a fitness coaching assistant with a human, emotionally intelligent personality. Given the user's context (targets, today's totals, what was just logged, weight trend, weight goal progress), write a SHORT reply (2-4 lines max).
-
-COACHING TONE — adapt based on the situation:
-- TOUGH LOVE when: they've overeaten (fat/calories exceeded), skipped workouts while eating over target, weight trend going wrong direction vs goal, or making the same mistake repeatedly. Be direct and blunt — "You blew past your fat target by 30g. That's two days in a row. Tomorrow: chicken, fish, lean cuts only. No excuses."
-- ENCOURAGING when: they're on track, making consistent progress, weight moving toward goal, or just logged a good workout. Acknowledge the effort genuinely, not with generic cheerfulness.
-- GENTLE when: they're struggling, having a bad day, falling behind but clearly trying, or logging honestly despite poor results. Show empathy — "Rough day. You still showed up and logged it, which is more than most people do. Reset tomorrow."
-- CHALLENGING when: they're coasting — hitting targets but not pushing, weight stalled and not changing. Push them to level up — "You're comfortable. That's the danger zone. What's one thing you can do harder this week?"
-
-Never be fake-positive. Never sugarcoat when they need to hear the truth. But also never be cruel — even tough love comes from wanting them to succeed. Think: the coach who's hard on you because they see your potential.
-
-WEIGHT COACHING — when weight data is present in context:
-- After a weigh-in: comment on the trend direction and whether it aligns with their goal. "Weight's been moving down steadily — the deficit is working."
-- If weight trend contradicts the goal: connect the dots with diet data. "You want to get to 210 but you've gained 0.5 lbs this week. Your calories averaged 3,100 — that's 500 over target."
-- Reference the weekly rate if available, and the distance to their goal.
-- Be specific: "At this rate, you'll hit 210 in about 8 weeks" or "Weight's flat — something needs to change."
-
-Rules:
-- First confirm what was logged (use the EXACT numbers provided in context, never invent numbers)
-- Then add ONE practical, specific focus point about diet or training
-- For meals: reference remaining macros and what to prioritize next
-- When the user asks what to eat, or when there's a significant protein/macro gap (>20g protein remaining), suggest 2-3 specific foods with approximate amounts that would fill the gap. Example: "40g protein to go — try: grilled chicken breast (4oz = 35g), Greek yogurt (1 cup = 17g), or a protein shake (25g)."
-- Food suggestions should be common, practical foods. Include approximate portion and protein/macro content.
-- No medical claims. On distress signals, respond with care and compassion
-- Keep it tight — this costs the user tokens on their own key
-- Numbers in the context block are ground truth — NEVER hallucinate different numbers
-- TARGETS come from the user's stored profile — they are the single source of truth. Never treat a number from the user's message as "your goal". If the user mentions a number in their question, compare it against the profile target but do not adopt it as the target.
-- When comparing actuals to targets: say "under target" if <95%, "met target" if within 5%, "exceeded target" if >105%. Never say "close to" or "very close to" when the target is met or exceeded.
-- NEVER include a tone label, mood tag, or header like "TOUGH LOVE", "ENCOURAGING", "GENTLE", etc. in your output. Just write the message directly."""
+# RESPOND_SYSTEM is now composed dynamically via compose_prompt() in
+# _generate_coaching_reply. The inline prompt is replaced by TASK_COACHING_REPLY
+# from ai/prompts.py, combined with the shared persona.
 
 # --- fast-path patterns ---
 
@@ -85,6 +64,22 @@ _HYDRATION_PAT = re.compile(r"^(?:drank|water|hydration)\s+([\d.]+)\s*(?:glasses
 _BARE_NUMBER = re.compile(r"^[\d.]+$")
 _QUERY_PAT = re.compile(
     r"(?:how(?:\'s| is| has| have| am| was| were| did))|(?:what(?:\'s| is| are| was| were))|(?:show me|tell me|give me|summary|report|recap|review)",
+    re.I,
+)
+_GOAL_FIT_PAT = re.compile(
+    r"(?:does|do|is|will)\s+.+\s+(?:fit|match|align|work for|suit|help)\s+(?:with\s+)?(?:my|the)?\s*goals?",
+    re.I,
+)
+_GOAL_FIT_PAT2 = re.compile(
+    r"(?:right|good|best)\s+(?:workout|exercise|activity|training)\s+(?:for me|for my goal)",
+    re.I,
+)
+_WORKOUT_EXPLAINER_PAT = re.compile(
+    r"(?:what|give me|suggest|show me|recommend)\s+.+\s+(?:workout|exercise|routine)s?\s+(?:for|to help)",
+    re.I,
+)
+_WORKOUT_CATEGORY_PAT = re.compile(
+    r"\b(moving better|mobility|hip mobility|core strength|core|strength)\b",
     re.I,
 )
 
@@ -627,22 +622,9 @@ def _get_food_suggestions(targets: dict, totals: dict) -> str:
     return "\n".join(suggestions)
 
 
-QUERY_RESPOND_SYSTEM = """You are a fitness coaching assistant answering a question about the user's data. You have their actual logged data below.
-
-Rules:
-- Answer based ONLY on the data provided — never invent numbers
-- Be specific: reference actual numbers, dates, and trends from the data
-- Plain, honest, lightly motivating tone
-- If data is missing, say so ("no meals logged on Tuesday" rather than making up numbers)
-- Keep it concise: 4-8 lines max
-- Include a practical insight or suggestion based on what you see
-- For diet questions: cover calories, protein, consistency
-- For fitness questions: cover workouts, training plan adherence, activity
-- For general "how am I doing": cover both diet + fitness
-- Numbers from the data context are ground truth — NEVER hallucinate different numbers
-- TARGETS labeled "PROFILE TARGETS" are from the user's stored settings — the single source of truth. Never promote a number the user mentions in their question to "your goal".
-- Averages are computed from COMPLETED days only; today is shown separately as in progress
-- Use exact status labels: "under target" (<95%), "met target" (within 5%), "exceeded target" (>105%). Never say "close to" or "very close to" when a target was met or exceeded."""
+# QUERY_RESPOND_SYSTEM is now composed dynamically via compose_prompt() in
+# _generate_coaching_reply. The inline prompt is replaced by TASK_QUERY_RESPONSE
+# from ai/prompts.py, combined with the shared persona.
 
 
 def _build_query_context(act_result: dict) -> str:
@@ -982,21 +964,120 @@ def _deterministic_confirmation(act_results: list[dict], user_id: int) -> str:
     return "\n".join(parts) if parts else "Got it."
 
 
+def _get_user_tone_pref(user_id: int) -> str:
+    """Read the user's feedback_tone_preference. Defaults to 'neutral'."""
+    user = db.get_user_by_id(user_id)
+    if not user:
+        return "neutral"
+    return user.get("feedback_tone_preference") or "neutral"
+
+
+def _get_performance_signal(user_id: int, act_results: list[dict]) -> str:
+    """Build a short performance signal for persona tone adaptation."""
+    from fitnessbot.nutrition import get_nutrition_targets
+    from fitnessbot.tz import day_utc_range
+    today = user_today(user_id)
+    urange = day_utc_range(today, user_id)
+    totals = db.get_today_totals(user_id, today, utc_range=urange)
+    targets = get_nutrition_targets(user_id)
+
+    signals = []
+    cal_pct = totals["calories"] / targets["calories"] if targets["calories"] else 0
+    prot_pct = totals["protein"] / targets["protein"] if targets["protein"] else 0
+    fat_pct = totals["fat"] / targets["fat"] if targets["fat"] else 0
+
+    if cal_pct > 1.15:
+        signals.append("calories significantly exceeded today")
+    if fat_pct > 1.2:
+        signals.append("fat macro blown")
+    if prot_pct < 0.5 and totals["calories"] > targets["calories"] * 0.6:
+        signals.append("protein very low relative to calorie intake")
+
+    workout_results = [r for r in act_results if r.get("action") in ("workout_logged", "plan_completed")]
+    if workout_results:
+        signals.append("just completed a workout")
+
+    weight = get_weight_summary(user_id)
+    if weight.get("has_data") and weight.get("trend_7d") is not None:
+        if weight["trend_7d"] > 0.5:
+            signals.append("weight trending up this week")
+        elif weight["trend_7d"] < -0.5:
+            signals.append("weight trending down this week (on track)")
+
+    return "; ".join(signals) if signals else ""
+
+
+def _is_goal_fit_query(text: str) -> bool:
+    """Detect if the user is asking about goal-fit for a workout."""
+    return bool(_GOAL_FIT_PAT.search(text) or _GOAL_FIT_PAT2.search(text))
+
+
+def _is_workout_explainer_query(text: str) -> bool:
+    """Detect if the user is asking for workout explanations by category."""
+    return bool(_WORKOUT_EXPLAINER_PAT.search(text) or _WORKOUT_CATEGORY_PAT.search(text))
+
+
+def _build_goal_fit_context(user_id: int, question: str) -> str:
+    """Build context for goal-fit evaluation."""
+    goals = db.get_goals(user_id, status="active")
+    from fitnessbot import training_plan
+    from fitnessbot.training_plan import _monday_of_week
+    ws = _monday_of_week(user_now(user_id).date())
+    plan_items = training_plan.get_plan_items(user_id, ws)
+
+    lines = [f"User question: \"{question}\"", ""]
+    if goals:
+        for g in goals[:3]:
+            lines.append(f"Active goal: {g.get('title', '')} — {g.get('goal_type', '')} "
+                        f"(target: {g.get('target_weight', 'N/A')} lbs, "
+                        f"event: {g.get('event_name', 'none')})")
+    else:
+        lines.append("No active goals set.")
+
+    if plan_items:
+        lines.append(f"\nTraining plan this week: {len(plan_items)} activities")
+        for item in plan_items[:5]:
+            status = "✓" if item.get("completed") else "○"
+            lines.append(f"  {status} {item.get('title', '?')} ({item.get('activity_type', '?')})")
+
+    return "\n".join(lines)
+
+
 def _generate_coaching_reply(user_id: int, raw_text: str, act_results: list[dict]) -> tuple[str, dict]:
     """Generate an LLM coaching reply. Returns (reply_text, token_usage)."""
     from fitnessbot.inference.factory import get_inference
 
-    # Use dedicated query path for data questions
+    tone_pref = _get_user_tone_pref(user_id)
+    perf_signal = _get_performance_signal(user_id, act_results)
+
+    # Check for goal-fit or workout explainer queries first
     query_results = [r for r in act_results if r.get("action") == "query"]
+    question = ""
     if query_results:
+        question = query_results[0].get("question", raw_text)
+    else:
+        question = raw_text
+
+    if _is_goal_fit_query(question):
+        context = _build_goal_fit_context(user_id, question)
+        system = compose_prompt(TASK_GOAL_FIT_CHECK, tone_pref=tone_pref, performance_signal=perf_signal)
+        prompt = context
+        fallback_fn = lambda: "I can help evaluate that — try telling me which specific workout or activity you're asking about, and I'll check it against your goals."
+    elif _is_workout_explainer_query(question):
+        cat_match = _WORKOUT_CATEGORY_PAT.search(question)
+        category = cat_match.group(1) if cat_match else "general"
+        system = compose_prompt(TASK_WORKOUT_EXPLAINER, tone_pref=tone_pref, performance_signal=perf_signal)
+        prompt = f"User asked: \"{question}\"\nCategory: {category}"
+        fallback_fn = lambda: "I can explain workouts for different goals. Try asking about: moving better, strength, mobility, hip mobility, or core strength."
+    elif query_results:
         qr = query_results[0]
         digest = _build_query_context(qr)
-        system = QUERY_RESPOND_SYSTEM
+        system = compose_prompt(TASK_QUERY_RESPONSE, tone_pref=tone_pref, performance_signal=perf_signal)
         prompt = f"User asked: \"{qr.get('question', raw_text)}\"\n\n{digest}"
         fallback_fn = lambda: _deterministic_query_response(qr)
     else:
         digest = _build_context_digest(user_id, act_results)
-        system = RESPOND_SYSTEM
+        system = compose_prompt(TASK_COACHING_REPLY, tone_pref=tone_pref, performance_signal=perf_signal)
         prompt = f"User said: \"{raw_text}\"\n\n{digest}"
         fallback_fn = lambda: _deterministic_confirmation(act_results, user_id)
 

@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timezone, timedelta
 
 from fitnessbot import db
+from fitnessbot.ai.prompts import compose_prompt
 from fitnessbot.inference.base import InferenceError
 
 logger = logging.getLogger(__name__)
@@ -157,26 +158,17 @@ Given the event details, create a comprehensive but practical prep plan. Return 
 Be specific to the sport/event type. Use evidence-based training principles. Keep it practical and actionable.
 If the prep window is short (<2 weeks), focus on what's realistically achievable and event-day readiness rather than building new fitness."""
 
-MOTIVATION_SYSTEM = """You are a fitness coach with a complex, human personality — not a motivational poster. Generate a brief, personalized check-in message.
-
-Adapt your tone to the situation:
-- When they're close to the event and training hard: match their energy and hype them up.
-- When they've been slacking (missed workouts, overeating): be direct and hold them accountable without being cruel.
-- When they're grinding but burning out or sleep/recovery data looks bad: pull back, show concern, prioritize recovery.
-- When the data shows a pattern they might not see: connect the dots honestly.
+_TASK_MOTIVATION = """Generate a brief, personalized event-coaching check-in message.
 
 Rules:
 - Reference their specific event and days remaining
 - Include ONE actionable tip for today
 - Mention their recent progress if data is provided
 - Keep it to 3-5 lines max
-- Never be generic. Never sound like a bot. Sound like someone who actually knows them.
-- End with a question or prompt that invites engagement
-- NEVER include a tone label, mood tag, or header like "THOUGHTFUL", "FIRED UP", "TOUGH LOVE", etc. in your output. Just write the message directly — no preamble, no meta-commentary about your tone."""
+- Never be generic. Sound like someone who actually knows them.
+- End with a question or prompt that invites engagement"""
 
-READINESS_SYSTEM = """You are a sport science coach assessing readiness for an upcoming event.
-
-Based on the user's actual logged data (training, nutrition, sleep, weight) and their prep plan, give an honest readiness assessment.
+_TASK_READINESS = """Assess readiness for an upcoming event based on actual logged data.
 
 Rules:
 - Score readiness 1-10 based on available data
@@ -382,10 +374,15 @@ Motivation angle: {hook}
 
 Generate a check-in message. Do NOT include any tone labels or headers — just the message."""
 
+    # Compose via shared persona
+    user = db.get_user_by_id(user_id)
+    tone_pref = (user.get("feedback_tone_preference") or "neutral") if user else "neutral"
+    system = compose_prompt(_TASK_MOTIVATION, tone_pref=tone_pref)
+
     try:
         infer = get_inference(user_id)
         result = infer(
-            system=MOTIVATION_SYSTEM,
+            system=system,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=200,
         )
@@ -455,10 +452,15 @@ def build_readiness_assessment(user_id: int, event_goal: dict) -> str:
 
     prompt = "\n".join(data_lines)
 
+    # Compose via shared persona
+    user = db.get_user_by_id(user_id)
+    tone_pref = (user.get("feedback_tone_preference") or "neutral") if user else "neutral"
+    system = compose_prompt(_TASK_READINESS, tone_pref=tone_pref)
+
     try:
         infer = get_inference(user_id)
         result = infer(
-            system=READINESS_SYSTEM,
+            system=system,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=400,
         )

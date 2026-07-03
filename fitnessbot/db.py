@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 21
 
 SCHEMA_SQL = """
 -- users
@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS users (
     units_pref TEXT NOT NULL DEFAULT 'imperial',
     activity_level TEXT,
     dietary_restrictions TEXT,  -- JSON
+    feedback_tone_preference TEXT DEFAULT 'neutral',
     is_superadmin INTEGER NOT NULL DEFAULT 0,
     last_active_at TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
@@ -1076,6 +1077,14 @@ def run_migrations() -> None:
                 conn.commit()
             conn.execute("INSERT INTO schema_version (version) VALUES (20)")
             conn.commit()
+        if current < 21:
+            # Add feedback_tone_preference column to users table
+            try:
+                conn.execute("ALTER TABLE users ADD COLUMN feedback_tone_preference TEXT DEFAULT 'neutral'")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+            conn.execute("INSERT INTO schema_version (version) VALUES (21)")
+            conn.commit()
 
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
@@ -1138,7 +1147,7 @@ def update_user(user_id: int, **kwargs) -> None:
     allowed = {
         "display_name", "timezone", "sex", "height", "birthdate",
         "units_pref", "activity_level", "dietary_restrictions",
-        "active_provider", "active_model",
+        "active_provider", "active_model", "feedback_tone_preference",
     }
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:

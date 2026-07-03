@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 
 from fitnessbot.config import Config
 from fitnessbot import db
+from fitnessbot.ai.prompts import compose_prompt
 from fitnessbot.metrics import get_weight_summary, build_weight_analysis
 from fitnessbot.nutrition import get_nutrition_targets
 from fitnessbot.web.connections import decrypt_token
@@ -236,19 +237,28 @@ def build_evening_wrap(user_id: int) -> str:
     except Exception:
         pass
 
-    # Coaching tone based on how the day went
+    # Coaching tone based on how the day went — adapted to user's tone preference
     cal_pct = totals["calories"] / targets["calories"] if targets["calories"] else 0
     prot_pct = totals["protein"] / targets["protein"] if targets["protein"] else 0
     fat_pct = totals["fat"] / targets["fat"] if targets["fat"] else 0
 
+    user = db.get_user_by_id(user_id)
+    tone = (user.get("feedback_tone_preference") or "neutral") if user else "neutral"
+
     lines.append("")
     if cal_pct > 1.15 and fat_pct > 1.2:
-        lines.append("Tough day. Over on calories and fat. Don't spiral — just reset tomorrow. Clean meals, lean protein, move on.")
+        if tone == "supportive":
+            lines.append("Went over on calories and fat today. Not ideal, but tomorrow's a clean slate. Plan your first two meals before bed.")
+        else:
+            lines.append("Tough day. Over on calories and fat. Don't spiral — just reset tomorrow. Clean meals, lean protein, move on.")
     elif cal_pct > 1.1:
         lines.append(f"Calories exceeded by {totals['calories'] - targets['calories']:.0f}. It happens. Tomorrow: be intentional from breakfast.")
     elif prot_pct < 0.7:
         prot_gap = targets["protein"] - totals["protein"]
-        lines.append(f"Only {totals['protein']:.0f}g protein today — {prot_gap:.0f}g short. That's hurting your recovery. A scoop of whey or Greek yogurt before bed helps, but plan better tomorrow.")
+        if tone == "blunt":
+            lines.append(f"Only {totals['protein']:.0f}g protein today — {prot_gap:.0f}g short. That's unacceptable for your goals. Fix it tomorrow from meal one.")
+        else:
+            lines.append(f"Only {totals['protein']:.0f}g protein today — {prot_gap:.0f}g short. That's hurting your recovery. A scoop of whey or Greek yogurt before bed helps, but plan better tomorrow.")
     elif cal_pct > 0.9 and prot_pct > 0.85:
         lines.append("Good day. Targets met, protein solid. This is what consistency looks like.")
     else:
