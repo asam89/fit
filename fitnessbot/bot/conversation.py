@@ -566,6 +566,7 @@ def _act_query(user_id: int, question: str = "") -> dict:
     return {
         "action": "query",
         "question": question,
+        "user_id": user_id,
         "totals": totals,
         "targets": targets,
         "weight": weight,
@@ -721,7 +722,7 @@ def _build_query_context(act_result: dict) -> str:
             lines.append(f"  30d trend: {abs(weight['trend_30d']):.1f} lbs {direction}")
         # Goal context
         from fitnessbot.metrics import build_weight_analysis as _bwa
-        w_analysis = _bwa(user_id)
+        w_analysis = _bwa(act_result["user_id"])
         if w_analysis.get("has_data") and w_analysis.get("weight_goal"):
             lines.append(f"  Goal: {w_analysis['weight_goal']} lbs ({w_analysis.get('distance_to_goal', '?')} lbs to go)")
             lines.append(f"  Status: {w_analysis.get('goal_message', '')}")
