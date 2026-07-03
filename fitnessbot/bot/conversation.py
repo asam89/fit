@@ -854,12 +854,44 @@ def _build_context_digest(user_id: int, act_results: list[dict]) -> str:
         lines.append("FOOD OPTIONS TO FILL GAPS:")
         lines.append(food_hints)
 
+    # Add today's workout health benefits if any workouts were logged
+    workout_results = [r for r in act_results if r.get("action") in ("workout_logged", "plan_completed", "workout_logged_no_plan")]
+    if workout_results:
+        try:
+            from fitnessbot.health_benefits import get_daily_benefits
+            daily = get_daily_benefits(user_id, today)
+            if daily["session_count"] > 0:
+                lines.append(f"TODAY'S WORKOUT BENEFITS: {daily['session_count']} session(s), ~{daily['total_calories_burned']} cal burned, {daily['total_duration_min']} min")
+                if daily.get("primary_benefit_label"):
+                    lines.append(f"  Primary benefit: {daily['primary_benefit_label']}")
+                muscles = [m for m in daily.get("muscle_groups_worked", []) if m != "full body"]
+                if muscles:
+                    lines.append(f"  Muscles worked: {', '.join(muscles)}")
+        except Exception:
+            pass
+
     lines.append("")
     lines.append("JUST LOGGED:")
     for r in act_results:
         lines.append(f"  {json.dumps(r, default=str)}")
 
     return "\n".join(lines)
+
+
+def _append_workout_benefits(parts: list[str], activity: str, duration_min: int | None, user_id: int) -> None:
+    """Append a one-line health benefit summary after a workout confirmation."""
+    try:
+        from fitnessbot.health_benefits import get_activity_benefits, _get_user_weight_kg
+        weight_kg = _get_user_weight_kg(user_id)
+        benefits = get_activity_benefits(activity, duration_min, weight_kg)
+        icon = benefits["benefit_icon"]
+        label = benefits["benefit_label"]
+        cal = benefits["calories_burned"]
+        muscles = [m for m in benefits["muscle_groups"] if m != "full body"]
+        muscle_str = f" | Muscles: {', '.join(muscles)}" if muscles else ""
+        parts.append(f"{icon} {label} \u2014 ~{cal} cal burned{muscle_str}")
+    except Exception:
+        pass
 
 
 def _deterministic_confirmation(act_results: list[dict], user_id: int) -> str:
@@ -890,6 +922,7 @@ def _deterministic_confirmation(act_results: list[dict], user_id: int) -> str:
             parts.append(f"Logged resting HR: {r['value']} bpm.")
         elif action == "workout_logged":
             parts.append(f"Logged workout: {r['activity']}" + (f" {r['duration_min']}min." if r.get('duration_min') else "."))
+            _append_workout_benefits(parts, r.get('activity', 'workout'), r.get('duration_min'), user_id)
         elif action == "hydration_logged":
             parts.append(f"Logged water: {r['value']} glasses.")
         elif action == "body_fat_logged":
@@ -902,6 +935,7 @@ def _deterministic_confirmation(act_results: list[dict], user_id: int) -> str:
             parts.append(f"Added {r['added']} activities to this week's plan.")
         elif action == "plan_completed":
             parts.append(f"\u2713 {r['title']} marked done!")
+            _append_workout_benefits(parts, r.get('title', r.get('activity_type', 'workout')), None, user_id)
         elif action == "pb_logged":
             ex = r.get("exercise_name", "").title()
             val = r.get("value", "")
@@ -916,6 +950,7 @@ def _deterministic_confirmation(act_results: list[dict], user_id: int) -> str:
             parts.append(f"Couldn't log PR: {r.get('note', 'try again')}")
         elif action == "workout_logged_no_plan":
             parts.append(f"Logged {r['activity']}" + (f" ({r['duration_min']}min)" if r.get('duration_min') else "") + ". No matching plan item — want me to add it?")
+            _append_workout_benefits(parts, r.get('activity', 'workout'), r.get('duration_min'), user_id)
         elif action == "event_goal_created":
             plan_data = r.get("plan_data", {})
             parts.append(f"🎯 *{r['title']}* — {r['event_date']} ({r['days_out']} days out)")
