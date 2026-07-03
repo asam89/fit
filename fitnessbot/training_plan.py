@@ -393,31 +393,52 @@ def set_plan_from_text(user_id: int, activities: list[dict]) -> dict:
 
 
 def complete_by_title(user_id: int, title_hint: str, actual_duration: int | None = None) -> dict | None:
-    """Complete a planned item matching the title hint for today."""
+    """Complete a planned item matching the title hint for today.
+
+    Matching strategy:
+    1. Exact/substring match on today's items
+    2. If hint is generic and there's exactly one uncompleted item for today, auto-match
+    3. Fall back to this week's items (today first, then other days)
+    """
     today_str = _today(user_id).isoformat()
     items = get_items_for_date(user_id, today_str)
 
-    hint_lower = title_hint.lower()
-    match = None
-    for item in items:
-        if item["status"] != "completed" and (
-            hint_lower in item["title"].lower() or
-            hint_lower in item["activity_type"].lower()
-        ):
-            match = item
-            break
+    hint_lower = title_hint.lower().strip()
+    # Generic hints that mean "today's workout" without specifying which one
+    generic_hints = {"workout", "activity", "today", "done", "exercise", "training",
+                     "session", "my workout", "today's workout", "the workout"}
+    is_generic = hint_lower in generic_hints
 
-    if not match:
-        # Try this week
-        week_start = get_current_week_start(user_id)
-        all_items = get_plan_items(user_id, week_start)
-        for item in all_items:
-            if item["status"] != "completed" and (
-                hint_lower in item["title"].lower() or
-                hint_lower in item["activity_type"].lower()
-            ):
+    # Filter to uncompleted, non-rest items for today
+    today_pending = [i for i in items if i["status"] != "completed" and i.get("activity_type") != "rest"]
+
+    match = None
+    if not is_generic:
+        # Specific hint: substring match on title or activity_type
+        for item in today_pending:
+            if (hint_lower in item["title"].lower() or
+                hint_lower in item["activity_type"].lower()):
                 match = item
                 break
+
+    # If no specific match, or hint is generic, auto-match if only one pending item today
+    if not match and today_pending:
+        if is_generic or len(today_pending) == 1:
+            match = today_pending[0]
+
+    if not match:
+        # Fall back to this week — prioritize today, then other days
+        week_start = get_current_week_start(user_id)
+        all_items = get_plan_items(user_id, week_start)
+        week_pending = [i for i in all_items if i["status"] != "completed"
+                        and i.get("activity_type") != "rest" and i["date"] != today_str]
+        if not is_generic:
+            for item in week_pending:
+                if (hint_lower in item["title"].lower() or
+                    hint_lower in item["activity_type"].lower()):
+                    match = item
+                    break
+        # Don't auto-match week items with generic hint — too ambiguous
 
     if match:
         return complete_item(match["item_id"], user_id, actual_duration)

@@ -37,7 +37,7 @@ Return ONLY a JSON object with key "intents" — an array of objects, each with:
   - profile_update: "field" (age/height/sex/units/activity_level), "value"
   - goal_update: "goal_type" (lose/gain/maintain), "target_weight", "target_date"
   - plan_set: "activities" (array of {day: "monday"..."sunday", title: str, type: "strength"/"run"/"cardio"/"mobility"/"sport"/"rest"/"other", duration: int|null})
-  - plan_complete: "title_hint" (what activity to mark done, e.g. "basketball", "legs"), "actual_duration": int|null
+  - plan_complete: "title_hint" (specific activity name to mark done, e.g. "basketball", "legs". If the user says something generic like "mark my workout as done" without naming a specific activity, use "workout" as the hint), "actual_duration": int|null
   - event_goal: "title" (event name, e.g. "basketball tournament", "half marathon"), "date_text" (raw date mention, e.g. "July 17th", "in 30 days"), "description" (what the user wants help with)
   - readiness_check: "event_hint" (which event they're asking about, or empty for most recent)
   - tone_change: "tone" (supportive/neutral/blunt) — when user asks to change how feedback is delivered (e.g. "be more blunt", "go easier on me", "be supportive")
@@ -170,6 +170,19 @@ def _nlu_via_llm(text: str, user_id: int, pending: dict | None) -> tuple[list[di
     context_parts = []
     if pending:
         context_parts.append(f"PENDING QUESTION: \"{pending['question_text']}\" (category: {pending.get('category', 'unknown')})")
+
+    # Include today's planned activities so NLU can match plan_complete correctly
+    try:
+        from fitnessbot.training_plan import get_items_for_date, _today
+        today_str = _today(user_id).isoformat()
+        today_items = get_items_for_date(user_id, today_str)
+        pending_items = [i for i in today_items if i["status"] != "completed" and i.get("activity_type") != "rest"]
+        if pending_items:
+            item_list = ", ".join(f'"{i["title"]}" ({i["activity_type"]})' for i in pending_items)
+            context_parts.append(f"TODAY'S PLANNED (not yet done): {item_list}")
+    except Exception:
+        pass
+
     context_parts.append(f"Message: {text}")
 
     try:
