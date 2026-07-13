@@ -200,3 +200,57 @@ class TestToneChangeDetection:
         result = _fast_path_intents("switch to neutral", None)
         assert result is not None
         assert result[0]["tone"] == "neutral"
+
+
+class TestTrainingAdviceDetection:
+    """Test detection of deep training-guidance queries."""
+
+    def test_detects_training_advice(self):
+        from fitnessbot.bot.conversation import _is_training_advice_query
+        assert _is_training_advice_query("how should I train this week")
+        assert _is_training_advice_query("give me training tips")
+        assert _is_training_advice_query("how do I train to failure")
+        assert _is_training_advice_query("how can I maximize my gains")
+        assert _is_training_advice_query("how should I build explosiveness")
+        assert _is_training_advice_query("review my week")
+        assert _is_training_advice_query("am I training hard enough")
+        assert _is_training_advice_query("how should I feel after my workout")
+        assert _is_training_advice_query("what exercises for my leg day explosiveness")
+
+    def test_rejects_non_training_advice(self):
+        from fitnessbot.bot.conversation import _is_training_advice_query
+        assert not _is_training_advice_query("I ate a sandwich")
+        assert not _is_training_advice_query("weight 180")
+        assert not _is_training_advice_query("how many calories today")
+
+    def test_fast_path_routes_training_advice_as_query(self):
+        from fitnessbot.bot.conversation import _fast_path_intents
+        result = _fast_path_intents("how should I train for basketball explosiveness", None)
+        assert result is not None
+        assert result[0]["type"] == "query"
+
+    def test_prompt_has_failure_science(self):
+        from fitnessbot.ai.prompts import TASK_TRAINING_GUIDANCE
+        lower = TASK_TRAINING_GUIDANCE.lower()
+        assert "failure" in lower
+        assert "progressive overload" in lower
+        assert "recovery" in lower
+        # Safety must be carried through
+        assert "medical advice" in lower
+        assert "injury" in lower or "pain" in lower
+
+    def test_training_guidance_context_builds(self):
+        """Context builder should not crash and should include key sections."""
+        import fitnessbot.bot.conversation as conv
+        from unittest.mock import patch
+        with patch.object(conv.db, "get_active_goals", return_value=[]), \
+             patch.object(conv.db, "get_active_event_goals", return_value=[]), \
+             patch.object(conv.db, "get_user_by_id", return_value={"activity_level": "moderate", "sex": "male"}), \
+             patch.object(conv.db, "get_workout_history", return_value=[]), \
+             patch.object(conv.db, "get_sleep_history", return_value=[]):
+            with patch("fitnessbot.training_plan.get_plan_items", return_value=[]), \
+                 patch("fitnessbot.health_benefits._get_user_weight_kg", return_value=80.0):
+                ctx = conv._build_training_guidance_context(1, "how should I train")
+        assert "GOALS:" in ctx
+        assert "THIS WEEK'S PLAN" in ctx
+        assert "LOGGED SESSIONS" in ctx

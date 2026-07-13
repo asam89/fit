@@ -185,3 +185,23 @@ Goal categories and their purposes:
 - Core strength: anti-movement stability, rotational power, spinal health. Think: carries, anti-rotation presses, dead bugs, pallof press.
 
 Keep the total response to 6-10 lines. Be specific about sets/reps/duration where helpful."""
+
+TASK_TRAINING_GUIDANCE = """The user wants deep, specific training guidance based on their actual week of workouts and their fitness goals. You have their week's training data and goals in the context below.
+
+Your job — give a real strength coach's breakdown:
+
+1. READ THE WEEK: Reference what they actually trained this week (specific sessions, muscle groups hit, volume, what's missing). Notice patterns — are they hammering one area and neglecting another? Are they training with enough frequency?
+
+2. TRAIN TO FAILURE / HYPERTROPHY SCIENCE: Explain how to train for real adaptation in plain, motivating language:
+   - Progressive overload and training close to failure (the last 1-3 reps should be genuinely hard — that's the stimulus that signals muscle fibers to adapt).
+   - The breakdown/rebuild cycle: resistance training creates micro-tears in muscle fibers; with adequate protein and sleep, the body repairs them stronger (supercompensation). Growth happens during recovery, not during the workout.
+   - Rep ranges: strength (3-6 reps, heavy), hypertrophy (6-12 reps, moderate, high effort), endurance (15+ reps). Match the range to the goal.
+   - How it should FEEL: a productive set ends with real difficulty — a deep muscle burn, shaking on the last reps, unable to keep good form for another 1-2 reps. Not "I could've done 10 more." Post-workout you should feel worked but not destroyed; some muscle soreness (DOMS) 24-48h later is normal, sharp joint pain is NOT.
+
+3. GOAL-SPECIFIC RECOMMENDATIONS: Connect their training to their actual goal. If they're training for basketball explosiveness and it's leg day, recommend the exercises that transfer — e.g. trap bar deadlifts, box squats, jump squats, Bulgarian split squats, calf work, plyometrics (depth jumps, bounds) — and explain WHY each builds the fast-twitch power and force production that translates to a higher vertical and first-step quickness. Be sport/goal-specific.
+
+4. WHAT TO ADD OR FIX: Give 2-4 concrete, prioritized recommendations for the rest of the week to maximize progress toward their goal.
+
+Safety (non-negotiable): No medical advice. "Training to failure" means the muscle can't complete another rep with good form — NEVER training through sharp/joint pain. If they mention pain or possible injury, tell them to back off and see a professional. Don't prescribe extreme volume or overtraining; emphasize recovery, sleep, and protein as part of the growth equation.
+
+Be specific and detailed — this is the one place to go deep. Reference real exercises, rep schemes, and the physiological "why." Aim for 10-16 lines. Stay in the coach's voice."""

@@ -10,7 +10,7 @@ from fitnessbot import db
 from fitnessbot.ai.food_parser import parse_meal, log_meal_from_parsed
 from fitnessbot.ai.prompts import (
     compose_prompt, TASK_COACHING_REPLY, TASK_QUERY_RESPONSE,
-    TASK_GOAL_FIT_CHECK, TASK_WORKOUT_EXPLAINER,
+    TASK_GOAL_FIT_CHECK, TASK_WORKOUT_EXPLAINER, TASK_TRAINING_GUIDANCE,
 )
 from fitnessbot.event_coaching import (
     is_event_goal_message, is_readiness_check, parse_event_date,
@@ -89,6 +89,19 @@ _TONE_CHANGE_PAT = re.compile(
     r"(?:more\s+)?(blunt|tough|harsh|direct|no.?bs|supportive|gentle|kind|encouraging|soft|easy|neutral|balanced)\b",
     re.I,
 )
+# Training guidance: deep coaching on how to train based on the week's workouts + goals
+_TRAINING_ADVICE_PAT = re.compile(
+    r"(?:how\s+(?:should|do|can|to)\s+i\s+train)"
+    r"|(?:train(?:ing)?\s+(?:tips?|advice|guidance|to\s+failure|harder|smarter|better))"
+    r"|(?:how\s+(?:hard|should)\s+(?:should\s+i\s+)?(?:push|go|train))"
+    r"|(?:maximize\s+(?:my\s+)?(?:gains?|workouts?|training|results?))"
+    r"|(?:build\s+(?:muscle|explosiveness|power|strength)\b)"
+    r"|(?:what\s+(?:should|exercises?|workouts?)\s+.*(?:for|to)\s+(?:my\s+)?(?:leg day|arm day|push day|pull day|explosiveness|vertical|first step))"
+    r"|(?:review\s+my\s+(?:week|workouts?|training))"
+    r"|(?:how\s+(?:should\s+i|do\s+i)\s+feel\s+(?:after|during)\s+(?:my\s+)?workout)"
+    r"|(?:am\s+i\s+training\s+(?:right|correctly|enough|hard\s+enough))",
+    re.I,
+)
 
 
 def _fast_path_intents(text: str, pending: dict | None) -> list[dict] | None:
@@ -147,6 +160,11 @@ def _fast_path_intents(text: str, pending: dict | None) -> list[dict] | None:
     # Readiness check fast path
     if is_readiness_check(stripped):
         return [{"type": "readiness_check", "event_hint": stripped, "confidence": 0.95}]
+
+    # Training guidance fast path — route as a query so it reaches the
+    # training-advice branch in _generate_coaching_reply
+    if _TRAINING_ADVICE_PAT.search(stripped):
+        return [{"type": "query", "question": stripped, "confidence": 0.95}]
 
     # Tone change fast path
     tone_m = _TONE_CHANGE_PAT.search(stripped)
@@ -1065,28 +1083,134 @@ def _is_workout_explainer_query(text: str) -> bool:
     return bool(_WORKOUT_EXPLAINER_PAT.search(text) or _WORKOUT_CATEGORY_PAT.search(text))
 
 
+def _is_training_advice_query(text: str) -> bool:
+    """Detect if the user wants deep training guidance based on their week + goals."""
+    return bool(_TRAINING_ADVICE_PAT.search(text))
+
+
+def _goals_context_lines(user_id: int) -> list[str]:
+    """Build goal description lines from both weight/body goals and event goals."""
+    lines = []
+    goals = db.get_active_goals(user_id)
+    for g in goals[:3]:
+        parts = [g.get("title") or g.get("goal_type", "goal")]
+        if g.get("goal_type"):
+            parts.append(f"type: {g['goal_type']}")
+        if g.get("target_weight"):
+            parts.append(f"target: {g['target_weight']} lbs")
+        if g.get("description"):
+            parts.append(g["description"])
+        if g.get("event_name"):
+            parts.append(f"event: {g['event_name']}")
+        lines.append("Goal: " + " — ".join(str(p) for p in parts if p))
+
+    event_goals = db.get_active_event_goals(user_id)
+    for eg in event_goals[:2]:
+        detail = f"Event goal: {eg.get('title', '')}"
+        if eg.get("sport_type"):
+            detail += f" ({eg['sport_type']})"
+        if eg.get("event_date"):
+            detail += f" on {eg['event_date']}"
+        if eg.get("days_out") is not None:
+            detail += f" — {eg['days_out']} days out"
+        if eg.get("description"):
+            detail += f": {eg['description']}"
+        lines.append(detail)
+
+    if not lines:
+        lines.append("No specific goals set — give general strength/hypertrophy guidance and ask what they're training for.")
+    return lines
+
+
 def _build_goal_fit_context(user_id: int, question: str) -> str:
     """Build context for goal-fit evaluation."""
-    goals = db.get_goals(user_id, status="active")
     from fitnessbot import training_plan
     from fitnessbot.training_plan import _monday_of_week
     ws = _monday_of_week(user_now(user_id).date())
     plan_items = training_plan.get_plan_items(user_id, ws)
 
     lines = [f"User question: \"{question}\"", ""]
-    if goals:
-        for g in goals[:3]:
-            lines.append(f"Active goal: {g.get('title', '')} — {g.get('goal_type', '')} "
-                        f"(target: {g.get('target_weight', 'N/A')} lbs, "
-                        f"event: {g.get('event_name', 'none')})")
-    else:
-        lines.append("No active goals set.")
+    lines.extend(_goals_context_lines(user_id))
 
     if plan_items:
         lines.append(f"\nTraining plan this week: {len(plan_items)} activities")
-        for item in plan_items[:5]:
-            status = "✓" if item.get("completed") else "○"
+        for item in plan_items[:7]:
+            done = item.get("status") == "completed"
+            status = "✓" if done else "○"
             lines.append(f"  {status} {item.get('title', '?')} ({item.get('activity_type', '?')})")
+
+    return "\n".join(lines)
+
+
+def _build_training_guidance_context(user_id: int, question: str) -> str:
+    """Build a rich context of the week's training + goals for deep coaching."""
+    from fitnessbot import training_plan
+    from fitnessbot.training_plan import _monday_of_week
+    from fitnessbot.health_benefits import get_activity_benefits, _get_user_weight_kg
+
+    lines = [f"User question: \"{question}\"", ""]
+
+    # Goals
+    lines.append("GOALS:")
+    for gl in _goals_context_lines(user_id):
+        lines.append(f"  {gl}")
+
+    # User profile signals
+    user = db.get_user_by_id(user_id)
+    if user:
+        prof_bits = []
+        if user.get("activity_level"):
+            prof_bits.append(f"activity level: {user['activity_level']}")
+        if user.get("sex"):
+            prof_bits.append(str(user["sex"]))
+        if prof_bits:
+            lines.append(f"\nPROFILE: {', '.join(prof_bits)}")
+
+    # This week's planned training (with completion state and muscle focus)
+    ws = _monday_of_week(user_now(user_id).date())
+    plan_items = training_plan.get_plan_items(user_id, ws)
+    weight_kg = _get_user_weight_kg(user_id)
+
+    if plan_items:
+        adherence = training_plan.compute_adherence(plan_items)
+        lines.append(f"\nTHIS WEEK'S PLAN ({adherence.get('completed', 0)}/{adherence.get('total', len(plan_items))} done):")
+        for item in plan_items:
+            atype = item.get("activity_type", "?")
+            if atype == "rest":
+                lines.append(f"  • {item.get('title', 'Rest')} (rest day) — {item.get('display_status', item.get('status', ''))}")
+                continue
+            title = item.get("title", "?")
+            dur = item.get("planned_duration_min")
+            ben = get_activity_benefits(title or atype, dur, weight_kg)
+            muscles = ", ".join(m for m in ben["muscle_groups"] if m != "full body") or "full body"
+            status = item.get("display_status", item.get("status", "planned"))
+            lines.append(
+                f"  • {title} ({atype}, {ben['intensity']}) — {status}"
+                f" | targets: {muscles} | benefit: {ben['benefit_label']}"
+            )
+    else:
+        lines.append("\nTHIS WEEK'S PLAN: none set.")
+
+    # Logged workout sessions this week (actuals from health_data)
+    workout_hist = db.get_workout_history(user_id, days=7)
+    if workout_hist:
+        lines.append(f"\nLOGGED SESSIONS (last 7 days, {len(workout_hist)} total):")
+        for w in workout_hist[-10:]:
+            act = w.get("activity") or w.get("type", "workout")
+            dur = w.get("duration_min")
+            dur_str = f", {dur}min" if dur else ""
+            note = f" — {w['notes']}" if w.get("notes") else ""
+            lines.append(f"  • {w.get('date', '?')}: {act}{dur_str}{note}")
+    else:
+        lines.append("\nLOGGED SESSIONS: none logged in the last 7 days.")
+
+    # Recent sleep — matters for the recovery/rebuild message
+    sleep_hist = db.get_sleep_history(user_id, 7)
+    if sleep_hist:
+        vals = [s.get("hours") for s in sleep_hist if s.get("hours")]
+        if vals:
+            avg_sleep = sum(vals) / len(vals)
+            lines.append(f"\nRECOVERY: avg sleep {avg_sleep:.1f}h over last {len(vals)} nights (recovery is when muscle rebuilds).")
 
     return "\n".join(lines)
 
@@ -1106,7 +1230,16 @@ def _generate_coaching_reply(user_id: int, raw_text: str, act_results: list[dict
     else:
         question = raw_text
 
-    if _is_goal_fit_query(question):
+    is_training_advice = False
+    if _is_training_advice_query(question):
+        is_training_advice = True
+        context = _build_training_guidance_context(user_id, question)
+        system = compose_prompt(TASK_TRAINING_GUIDANCE, tone_pref=tone_pref, performance_signal=perf_signal)
+        prompt = context
+        fallback_fn = lambda: ("Here's the short version: train close to failure on your main lifts "
+                               "(last 1-2 reps genuinely hard), hit each muscle group ~2x/week, eat enough protein, "
+                               "and sleep 7-9h so the muscle rebuilds. Tell me your goal and I'll get specific.")
+    elif _is_goal_fit_query(question):
         context = _build_goal_fit_context(user_id, question)
         system = compose_prompt(TASK_GOAL_FIT_CHECK, tone_pref=tone_pref, performance_signal=perf_signal)
         prompt = context
@@ -1131,10 +1264,16 @@ def _generate_coaching_reply(user_id: int, raw_text: str, act_results: list[dict
 
     try:
         infer = get_inference(user_id)
+        if is_training_advice:
+            max_tokens = 700
+        elif query_results:
+            max_tokens = 400
+        else:
+            max_tokens = 250
         result = infer(
             system=system,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=400 if query_results else 250,
+            max_tokens=max_tokens,
         )
         text = result["text"].strip()
         from fitnessbot.event_coaching import _strip_tone_labels
