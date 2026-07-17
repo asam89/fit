@@ -155,6 +155,20 @@ async def dashboard_home(request: Request):
     weight_goal = db.get_weight_goal(uid)
     weight_analysis = build_weight_analysis(uid)
 
+    # Day options for the manual workout log (current week Mon–Sun, default today)
+    from datetime import date as _date, timedelta as _timedelta
+    _today_iso = user_today(uid, tz_str=tz_str)
+    _monday = _date.fromisoformat(_today_iso)
+    _monday = _monday - _timedelta(days=_monday.weekday())
+    workout_day_options = []
+    for _i in range(7):
+        _d = _monday + _timedelta(days=_i)
+        _iso = _d.isoformat()
+        _label = _d.strftime("%a %b %d")
+        if _iso == _today_iso:
+            _label = "Today"
+        workout_day_options.append({"value": _iso, "label": _label, "selected": _iso == _today_iso})
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -187,6 +201,7 @@ async def dashboard_home(request: Request):
             "body_comp_history": body_comp_history,
             "activity_level": user.get("activity_level", "moderately_active"),
             "weight_analysis": weight_analysis,
+            "workout_day_options": workout_day_options,
         },
     )
 
@@ -500,21 +515,36 @@ async def log_sleep_manual(request: Request, sleep_hours: str = Form(""), sleep_
 
 
 @router.post("/dashboard/log/workout")
-async def log_workout_manual(request: Request, workout_type: str = Form(""), workout_duration: str = Form("")):
+async def log_workout_manual(request: Request, workout_type: str = Form(""),
+                             workout_duration: str = Form(""), workout_day: str = Form("")):
     user = get_current_user(request)
     if not user:
         return RedirectResponse("/login", status_code=303)
     uid = user["user_id"]
-    data = {}
-    if workout_type.strip():
-        data["type"] = workout_type.strip()
+    activity = workout_type.strip()
+    if not activity:
+        return RedirectResponse("/dashboard?log=workout_ok", status_code=303)
+
+    duration = None
     if workout_duration.strip():
         try:
-            data["duration_min"] = int(float(workout_duration.strip()))
+            duration = int(float(workout_duration.strip()))
+        except ValueError:
+            duration = None
+
+    # Resolve the target day (defaults to today in the user's timezone)
+    from fitnessbot.tz import user_today
+    date_str = user_today(uid)
+    if workout_day.strip():
+        try:
+            datetime.strptime(workout_day.strip(), "%Y-%m-%d")
+            date_str = workout_day.strip()
         except ValueError:
             pass
-    if data:
-        db.insert_health_data(uid, "workout", json.dumps(data), notes=f"Workout: {data}", recorded_at=datetime.now(timezone.utc).isoformat())
+
+    # Create a completed plan item so it shows on the training calendar
+    from fitnessbot import training_plan
+    training_plan.log_completed_activity(uid, activity, duration, date_str=date_str)
     return RedirectResponse("/dashboard?log=workout_ok", status_code=303)
 
 

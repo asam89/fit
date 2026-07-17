@@ -28,6 +28,39 @@ logger = logging.getLogger(__name__)
 
 MEAL_TYPES = ["Breakfast", "Lunch", "Snack", "Dinner", "Midnight Snack"]
 
+
+def _day_picker_for_actions(user_id: int, actions) -> InlineKeyboardMarkup | None:
+    """Build a Mon–Sun day-picker for a freshly logged (unplanned) workout.
+
+    Returns None unless exactly one workout was logged without matching an
+    existing plan item (i.e. it was auto-assigned to today).
+    """
+    from datetime import date, timedelta
+
+    logged = [a for a in (actions or [])
+              if a.get("action") == "workout_logged" and a.get("item_id")]
+    if len(logged) != 1:
+        return None
+    item_id = logged[0]["item_id"]
+    current = logged[0].get("date") or user_today(user_id)
+
+    monday = date.fromisoformat(user_today(user_id))
+    monday = monday - timedelta(days=monday.weekday())
+    rows, row = [], []
+    for i in range(7):
+        d = monday + timedelta(days=i)
+        d_iso = d.isoformat()
+        label = d.strftime("%a")
+        if d_iso == current:
+            label = f"\u2713 {label}"
+        row.append(InlineKeyboardButton(label, callback_data=f"wkday:{item_id}:{d_iso}"))
+        if len(row) == 4:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    return InlineKeyboardMarkup(rows)
+
 PHOTO_MEAL_SYSTEM = """You are a nutrition analyst. Given a photo of food, identify each item and estimate macros.
 
 Return ONLY a JSON object:
@@ -187,12 +220,35 @@ def register_handlers(app: Application, user_id: int) -> None:
         else:
             await query.edit_message_text("Meal not found or already deleted.")
 
+    async def handle_workout_day_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        data = query.data
+        if not data or not data.startswith("wkday:"):
+            return
+        await query.answer()
+        parts = data.split(":")
+        item_id = int(parts[1])
+        new_date = parts[2]
+        result = training_plan.reassign_item_date(item_id, user_id, new_date)
+        if result:
+            from datetime import date as _date
+            day_label = _date.fromisoformat(new_date).strftime("%A, %b %d")
+            await query.edit_message_text(f"\u2713 Moved to {day_label} on your calendar.")
+        else:
+            await query.edit_message_text("Couldn't move that activity — it may have been removed.")
+
     async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = update.message.text
         if not text:
             return
-        reply = await process_message(user_id, text, channel="text")
+        reply, actions = await process_message(user_id, text, channel="text", return_actions=True)
         await update.message.reply_text(reply)
+        markup = _day_picker_for_actions(user_id, actions)
+        if markup is not None:
+            await update.message.reply_text(
+                "Logged to today on your calendar. Wrong day? Tap to reassign:",
+                reply_markup=markup,
+            )
 
     async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         voice = update.message.voice
@@ -207,8 +263,14 @@ def register_handlers(app: Application, user_id: int) -> None:
                 await update.message.reply_text("Couldn't transcribe that. Try typing it instead or resend.")
                 return
             echo = f'Heard: "{transcript}"'
-            reply = await process_message(user_id, transcript, channel="voice")
+            reply, actions = await process_message(user_id, transcript, channel="voice", return_actions=True)
             await update.message.reply_text(f"{echo}\n\n{reply}")
+            markup = _day_picker_for_actions(user_id, actions)
+            if markup is not None:
+                await update.message.reply_text(
+                    "Logged to today on your calendar. Wrong day? Tap to reassign:",
+                    reply_markup=markup,
+                )
         except Exception as e:
             logger.error("Voice processing error: %s", e)
             await update.message.reply_text("Error processing voice message. Try typing it instead.")
@@ -466,6 +528,7 @@ def register_handlers(app: Application, user_id: int) -> None:
     app.add_handler(CommandHandler("invite", cmd_invite))
     app.add_handler(CommandHandler("sync", cmd_sync))
     app.add_handler(CommandHandler("tone", cmd_tone))
+    app.add_handler(CallbackQueryHandler(handle_workout_day_callback, pattern=r"^wkday:"))
     app.add_handler(CallbackQueryHandler(handle_plan_callback, pattern=r"^plan_done:"))
     app.add_handler(CallbackQueryHandler(handle_meal_type_callback, pattern=r"^meal_type:"))
     app.add_handler(CallbackQueryHandler(handle_meal_delete_callback, pattern=r"^meal_del:"))

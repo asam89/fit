@@ -369,14 +369,18 @@ def _act_workout(intent: dict, user_id: int) -> dict:
             "item_id": plan_result["item_id"],
         }
 
-    # No matching plan item — log as standalone workout in health_data
-    data = {"type": activity}
-    if duration:
-        data["duration_min"] = int(float(duration))
-    if notes:
-        data["notes"] = notes
-    db.insert_health_data(user_id, "workout", json.dumps(data), notes=f"Workout: {activity} {duration or ''}min")
-    return {"action": "workout_logged", "activity": activity, "duration_min": duration}
+    # No matching plan item — create a completed plan item so the activity
+    # shows up on the dashboard training calendar (not just in health_data).
+    dur_int = int(float(duration)) if duration else None
+    item = training_plan.log_completed_activity(user_id, activity, dur_int, notes or None)
+    return {
+        "action": "workout_logged",
+        "activity": activity,
+        "duration_min": duration,
+        "item_id": item.get("item_id"),
+        "date": item.get("date"),
+        "activity_type": item.get("activity_type"),
+    }
 
 
 def _act_profile(intent: dict, user_id: int) -> dict:
@@ -1288,8 +1292,12 @@ def _generate_coaching_reply(user_id: int, raw_text: str, act_results: list[dict
 
 # --- main loop ---
 
-async def process_message(user_id: int, text: str, channel: str = "text") -> str:
-    """Run the full understand -> act -> respond loop. Returns the reply text."""
+async def process_message(user_id: int, text: str, channel: str = "text",
+                          return_actions: bool = False):
+    """Run the full understand -> act -> respond loop.
+
+    Returns the reply text, or (reply_text, act_results) when return_actions=True.
+    """
     pending = db.get_pending_data_request(user_id)
 
     # 1. UNDERSTAND
@@ -1312,7 +1320,7 @@ async def process_message(user_id: int, text: str, channel: str = "text") -> str
         category = intents[0].get("metric", intents[0].get("type", "unknown"))
         db.insert_data_request(user_id, category, clarification)
         db.insert_message_log(user_id, channel, transcript=text, detected_intents=json.dumps(intents), response_text=clarification)
-        return clarification
+        return (clarification, []) if return_actions else clarification
 
     # Handle pending answer
     if pending and intents:
@@ -1365,4 +1373,4 @@ async def process_message(user_id: int, text: str, channel: str = "text") -> str
     except Exception as e:
         logger.warning("Failed to log message: %s", e)
 
-    return reply
+    return (reply, act_results) if return_actions else reply

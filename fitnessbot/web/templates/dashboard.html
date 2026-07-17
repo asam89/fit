@@ -518,6 +518,14 @@
               <label class="block text-xs font-medium text-gray-600 mb-1">Duration (min)</label>
               <input type="number" name="workout_duration" placeholder="e.g. 45" class="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none">
             </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">Day</label>
+              <select name="workout_day" class="px-2 py-2 border border-gray-200 rounded-lg text-sm">
+                {% for d in workout_day_options %}
+                <option value="{{ d.value }}"{% if d.selected %} selected{% endif %}>{{ d.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
             <button type="submit" class="px-3 py-2 bg-accent text-white text-xs font-semibold rounded-lg hover:bg-accent-press">Log</button>
           </form>
           <form method="post" action="/dashboard/log/vitals" class="flex items-end gap-2 flex-wrap">
