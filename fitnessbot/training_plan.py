@@ -20,6 +20,33 @@ ACTIVITY_ICONS = {
 }
 
 
+_ACTIVITY_TYPE_KEYWORDS = {
+    "strength": ("weight", "lift", "strength", "legs", "leg day", "push", "pull",
+                 "chest", "back", "arms", "shoulders", "squat", "deadlift", "bench",
+                 "gym", "resistance", "upper", "lower", "plyo", "pylo", "plyometric"),
+    "run": ("run", "jog", "sprint", "5k", "10k", "treadmill", "marathon"),
+    "cardio": ("cardio", "bike", "cycling", "spin", "row", "swim", "hiit",
+               "elliptical", "conditioning", "walk"),
+    "mobility": ("mobility", "stretch", "yoga", "pilates", "foam roll", "recovery",
+                 "flexibility", "warm up", "warmup"),
+    "sport": ("basketball", "soccer", "football", "tennis", "hockey", "volleyball",
+              "baseball", "golf", "game", "match", "practice", "scrimmage", "ball",
+              "hoops", "pickup"),
+    "rest": ("rest", "off day", "day off"),
+}
+
+
+def infer_activity_type(activity: str) -> str:
+    """Best-effort map a free-text activity into one of ACTIVITY_TYPES."""
+    if not activity:
+        return "other"
+    a = activity.lower()
+    for atype, kws in _ACTIVITY_TYPE_KEYWORDS.items():
+        if any(kw in a for kw in kws):
+            return atype
+    return "other"
+
+
 def _monday_of_week(d: date) -> str:
     monday = d - timedelta(days=d.weekday())
     return monday.isoformat()
@@ -111,6 +138,62 @@ def add_item(user_id: int, week_start: str, date_str: str, activity_type: str,
         )
         conn.commit()
         return {"item_id": cursor.lastrowid, "title": title, "activity_type": activity_type, "date": date_str}
+    finally:
+        conn.close()
+
+
+def log_completed_activity(user_id: int, activity: str, duration_min: int | None = None,
+                           notes: str | None = None, date_str: str | None = None) -> dict:
+    """Create a plan item for an ad-hoc activity and mark it completed.
+
+    Used when a workout is logged (via Telegram or the dashboard) with no
+    matching planned item — so the activity still shows up on the dashboard
+    training calendar instead of only living in health_data.
+
+    Defaults to today; pass date_str (YYYY-MM-DD) to assign a specific day.
+    """
+    if not date_str:
+        date_str = _today(user_id).isoformat()
+    week_start = _monday_of_week(date.fromisoformat(date_str))
+    activity_type = infer_activity_type(activity)
+    title = (activity or "Workout").strip().title()
+    item = add_item(user_id, week_start, date_str, activity_type, title, duration_min, notes)
+    completed = complete_item(item["item_id"], user_id, duration_min)
+    return completed or item
+
+
+def reassign_item_date(item_id: int, user_id: int, new_date: str) -> dict | None:
+    """Move a plan item (and its linked workout entry) to a different day."""
+    d = date.fromisoformat(new_date)
+    conn = db.get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM training_plan_items WHERE item_id = ? AND user_id = ?",
+            (item_id, user_id),
+        ).fetchone()
+        if not row:
+            return None
+        item = dict(row)
+
+        new_week_start = _monday_of_week(d)
+        plan = get_or_create_plan(user_id, new_week_start)
+        conn.execute(
+            "UPDATE training_plan_items SET plan_id = ?, date = ?, day_of_week = ? WHERE item_id = ? AND user_id = ?",
+            (plan["plan_id"], new_date, d.weekday(), item_id, user_id),
+        )
+
+        # Keep the linked workout entry's date in sync so the calendar and
+        # workout log agree.
+        linked = item.get("linked_exercise_id")
+        if linked:
+            conn.execute(
+                "UPDATE health_data SET recorded_at = ? WHERE hd_id = ? AND user_id = ?",
+                (f"{new_date}T12:00:00Z", linked, user_id),
+            )
+        conn.commit()
+        item["date"] = new_date
+        item["day_of_week"] = d.weekday()
+        return item
     finally:
         conn.close()
 

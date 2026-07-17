@@ -40,34 +40,44 @@ class TestWorkoutPlanReconciliation:
         # Should NOT have called insert_health_data directly
         mock_db.insert_health_data.assert_not_called()
 
+    @patch("fitnessbot.training_plan.log_completed_activity")
     @patch("fitnessbot.training_plan.complete_by_title")
     @patch("fitnessbot.bot.conversation.db")
-    def test_workout_log_no_plan_match_falls_through(self, mock_db, mock_complete):
-        """When no matching plan item, log to health_data as before."""
+    def test_workout_log_no_plan_match_creates_calendar_item(self, mock_db, mock_complete, mock_log):
+        """When no matching plan item, create a completed plan item on the calendar."""
         from fitnessbot.bot.conversation import _act_workout
 
         mock_complete.return_value = None
+        mock_log.return_value = {
+            "item_id": 99, "title": "Swimming", "activity_type": "cardio",
+            "date": "2026-06-22", "status": "completed",
+        }
 
         intent = {"activity": "swimming", "duration_min": 30, "notes": "open water"}
         result = _act_workout(intent, user_id=1)
 
         mock_complete.assert_called_once_with(1, "swimming", 30)
+        mock_log.assert_called_once_with(1, "swimming", 30, "open water")
         assert result["action"] == "workout_logged"
         assert result["activity"] == "swimming"
-        mock_db.insert_health_data.assert_called_once()
+        assert result["item_id"] == 99
+        assert result["date"] == "2026-06-22"
 
+    @patch("fitnessbot.training_plan.log_completed_activity")
     @patch("fitnessbot.training_plan.complete_by_title")
     @patch("fitnessbot.bot.conversation.db")
-    def test_workout_log_no_duration(self, mock_db, mock_complete):
-        """Duration is optional — passes None to complete_by_title."""
+    def test_workout_log_no_duration(self, mock_db, mock_complete, mock_log):
+        """Duration is optional — passes None to complete_by_title and the logger."""
         from fitnessbot.bot.conversation import _act_workout
 
         mock_complete.return_value = None
+        mock_log.return_value = {"item_id": 5, "title": "Yoga", "activity_type": "mobility", "date": "2026-06-22"}
 
         intent = {"activity": "yoga"}
         result = _act_workout(intent, user_id=1)
 
         mock_complete.assert_called_once_with(1, "yoga", None)
+        mock_log.assert_called_once_with(1, "yoga", None, None)
         assert result["action"] == "workout_logged"
 
 
