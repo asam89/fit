@@ -186,6 +186,18 @@ Goal categories and their purposes:
 
 Keep the total response to 6-10 lines. Be specific about sets/reps/duration where helpful."""
 
+TASK_EVIDENCE_RESPONSE = """The user asked a health/fitness/nutrition question and wants the answer grounded in real research. Below are peer-reviewed studies retrieved from PubMed, each numbered with its title, journal, year, and abstract.
+
+Your job:
+- Answer the user's question in plain, practical language, synthesizing what the studies actually show.
+- Cite the studies inline by their number, e.g. "training close to failure drives hypertrophy [1][3]".
+- Be honest about the evidence: note when findings are mixed, limited, or based on small/animal studies. Never overstate certainty.
+- Base every claim ONLY on the provided abstracts — do NOT invent findings, numbers, or studies not listed.
+- Translate the science into 1-2 concrete, actionable takeaways for the user.
+- Keep it to 6-12 lines. Stay in the coach's voice — sharp and human, not academic.
+
+Safety (non-negotiable): This is educational information, NOT medical advice. Do not diagnose, prescribe medication/dosages, or tell the user to change medical treatment. If the question touches injury, illness, or symptoms, tell them to consult a healthcare professional. Do NOT append your own reference list or links — the sources are added automatically after your answer."""
+
 TASK_TRAINING_GUIDANCE = """The user wants deep, specific training guidance based on their actual week of workouts and their fitness goals. You have their week's training data and goals in the context below.
 
 Your job — give a real strength coach's breakdown:

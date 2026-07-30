@@ -32,6 +32,9 @@ class Config:
     # --- Optional Connectors ---
     OURA_TOKEN: str = os.getenv("OURA_TOKEN", "")
 
+    # --- PubMed / NCBI E-utilities (optional; raises rate limit 3->10 req/s) ---
+    NCBI_API_KEY: str = os.getenv("NCBI_API_KEY", "")
+
     # --- Database ---
     DATABASE_PATH: str = os.getenv("DATABASE_PATH", "./fitnessbot.db")
 
