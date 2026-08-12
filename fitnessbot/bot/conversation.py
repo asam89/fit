@@ -2,6 +2,7 @@
 
 import json
 import logging
+import random
 import re
 import time
 from datetime import datetime, timezone
@@ -629,62 +630,177 @@ def _act_correction(intent: dict, user_id: int, units_pref: str) -> dict:
 
 # --- RESPOND layer ---
 
+# (name, portion, grams of the target macro, calories, meal times it suits)
+# Kept deliberately wide so suggestions rotate instead of defaulting to the
+# same few foods. "any" = fine at any time of day.
 FOOD_SUGGESTIONS_DB = {
     "protein": [
-        ("grilled chicken breast", "4oz", 35, 170),
-        ("Greek yogurt", "1 cup", 17, 100),
-        ("protein shake", "1 scoop", 25, 130),
-        ("cottage cheese", "1 cup", 28, 220),
-        ("eggs", "3 large", 18, 210),
-        ("canned tuna", "1 can", 30, 130),
-        ("turkey breast", "4oz", 28, 120),
-        ("edamame", "1 cup", 17, 190),
-        ("beef jerky", "1oz", 9, 80),
-        ("whey protein", "1 scoop", 25, 120),
+        ("grilled chicken breast", "4oz", 35, 170, ("lunch", "dinner")),
+        ("Greek yogurt", "1 cup", 17, 100, ("breakfast", "snack")),
+        ("protein shake", "1 scoop", 25, 130, ("any",)),
+        ("cottage cheese", "1 cup", 28, 220, ("breakfast", "snack")),
+        ("eggs", "3 large", 18, 210, ("breakfast", "lunch")),
+        ("canned tuna", "1 can", 30, 130, ("lunch", "snack")),
+        ("turkey breast", "4oz", 28, 120, ("lunch", "dinner")),
+        ("edamame", "1 cup", 17, 190, ("snack", "dinner")),
+        ("beef jerky", "1oz", 9, 80, ("snack",)),
+        ("salmon fillet", "4oz", 29, 230, ("dinner",)),
+        ("shrimp", "5oz", 30, 145, ("lunch", "dinner")),
+        ("lean ground beef", "4oz", 30, 220, ("dinner",)),
+        ("pork tenderloin", "4oz", 30, 165, ("dinner",)),
+        ("tofu", "1 cup firm", 20, 180, ("lunch", "dinner")),
+        ("tempeh", "3oz", 17, 160, ("lunch", "dinner")),
+        ("lentils", "1 cup cooked", 18, 230, ("lunch", "dinner")),
+        ("black beans", "1 cup", 15, 220, ("lunch", "dinner")),
+        ("chickpeas", "1 cup", 15, 270, ("lunch", "snack")),
+        ("skyr", "3/4 cup", 17, 110, ("breakfast", "snack")),
+        ("string cheese", "2 sticks", 14, 160, ("snack",)),
+        ("cod fillet", "5oz", 30, 130, ("dinner",)),
+        ("sardines", "1 tin", 23, 190, ("lunch", "snack")),
+        ("rotisserie chicken", "4oz", 32, 200, ("lunch", "dinner")),
+        ("egg whites", "1 cup", 26, 125, ("breakfast",)),
+        ("bison", "4oz", 30, 190, ("dinner",)),
+        ("seitan", "3oz", 21, 110, ("lunch", "dinner")),
+        ("smoked salmon", "3oz", 16, 100, ("breakfast", "lunch")),
+        ("protein oats", "1 cup", 22, 300, ("breakfast",)),
     ],
     "fat": [
-        ("avocado", "1/2", 15, 160),
-        ("almonds", "1oz", 14, 160),
-        ("peanut butter", "2 tbsp", 16, 190),
-        ("olive oil", "1 tbsp", 14, 120),
-        ("cheese", "1oz", 9, 110),
+        ("avocado", "1/2", 15, 160, ("any",)),
+        ("almonds", "1oz", 14, 160, ("snack",)),
+        ("peanut butter", "2 tbsp", 16, 190, ("breakfast", "snack")),
+        ("olive oil", "1 tbsp", 14, 120, ("lunch", "dinner")),
+        ("cheese", "1oz", 9, 110, ("any",)),
+        ("walnuts", "1oz", 18, 185, ("snack",)),
+        ("chia seeds", "2 tbsp", 9, 140, ("breakfast", "snack")),
+        ("pumpkin seeds", "1oz", 13, 150, ("snack",)),
+        ("tahini", "2 tbsp", 16, 180, ("lunch", "dinner")),
+        ("macadamia nuts", "1oz", 21, 200, ("snack",)),
+        ("dark chocolate", "1oz 85%", 12, 170, ("snack",)),
+        ("cashews", "1oz", 12, 155, ("snack",)),
+        ("flaxseed", "2 tbsp", 8, 110, ("breakfast",)),
+        ("pesto", "2 tbsp", 15, 155, ("lunch", "dinner")),
     ],
     "carbs": [
-        ("oatmeal", "1 cup cooked", 27, 150),
-        ("banana", "1 medium", 27, 105),
-        ("rice", "1 cup cooked", 45, 200),
-        ("sweet potato", "1 medium", 26, 110),
-        ("whole wheat bread", "2 slices", 24, 140),
+        ("oatmeal", "1 cup cooked", 27, 150, ("breakfast",)),
+        ("banana", "1 medium", 27, 105, ("any",)),
+        ("rice", "1 cup cooked", 45, 200, ("lunch", "dinner")),
+        ("sweet potato", "1 medium", 26, 110, ("lunch", "dinner")),
+        ("whole wheat bread", "2 slices", 24, 140, ("breakfast", "lunch")),
+        ("quinoa", "1 cup cooked", 39, 220, ("lunch", "dinner")),
+        ("whole wheat pasta", "1 cup cooked", 37, 175, ("dinner",)),
+        ("berries", "1.5 cups", 26, 110, ("breakfast", "snack")),
+        ("apple", "1 large", 31, 120, ("snack",)),
+        ("mango", "1 cup", 25, 100, ("snack",)),
+        ("farro", "1 cup cooked", 37, 200, ("lunch", "dinner")),
+        ("corn tortillas", "3", 36, 180, ("lunch", "dinner")),
+        ("bagel", "1 whole wheat", 48, 250, ("breakfast",)),
+        ("dates", "3", 32, 120, ("snack",)),
+        ("granola", "1/3 cup", 30, 190, ("breakfast", "snack")),
+        ("butternut squash", "1.5 cups", 24, 110, ("dinner",)),
     ],
 }
 
+_MEAL_TIME_BY_HOUR = (
+    (11, "breakfast"),
+    (16, "lunch"),
+    (21, "dinner"),
+)
 
-def _get_food_suggestions(targets: dict, totals: dict) -> str:
-    """Generate food suggestion lines based on macro gaps."""
+
+def _current_meal_time(user_id: int | None) -> str:
+    """Rough meal slot for the user's local time — used to bias suggestions."""
+    if user_id is None:
+        return "any"
+    try:
+        hour = user_now(user_id).hour
+    except Exception:
+        return "any"
+    for cutoff, slot in _MEAL_TIME_BY_HOUR:
+        if hour < cutoff:
+            return slot
+    return "snack"
+
+
+def _recently_eaten_names(user_id: int | None, limit: int = 12) -> str:
+    """Lowercased blob of recently logged meal text, to avoid repeat suggestions."""
+    if user_id is None:
+        return ""
+    try:
+        meals = db.get_recent_meals(user_id, limit=limit)
+    except Exception:
+        return ""
+    return " ".join(str(m.get("raw_text") or "") for m in meals).lower()
+
+
+def _pick_foods(foods: list[tuple], remaining_cal: float, meal_time: str,
+                recent_blob: str, count: int = 3) -> list[tuple]:
+    """Pick varied, situation-appropriate foods instead of always the first few.
+
+    Preference order: fits calories + suits this meal time + not eaten recently,
+    then relaxes the "not eaten recently" and meal-time constraints as needed.
+    """
+    affordable = [f for f in foods if f[3] <= remaining_cal]
+    if not affordable:
+        return []
+
+    def suits_time(f: tuple) -> bool:
+        return meal_time == "any" or "any" in f[4] or meal_time in f[4]
+
+    def is_fresh(f: tuple) -> bool:
+        return f[0].lower() not in recent_blob
+
+    tiers = [
+        [f for f in affordable if suits_time(f) and is_fresh(f)],
+        [f for f in affordable if is_fresh(f)],
+        affordable,
+    ]
+
+    picks: list[tuple] = []
+    for tier in tiers:
+        pool = [f for f in tier if f not in picks]
+        if not pool:
+            continue
+        random.shuffle(pool)
+        picks.extend(pool[: count - len(picks)])
+        if len(picks) >= count:
+            break
+    return picks[:count]
+
+
+def _get_food_suggestions(targets: dict, totals: dict, user_id: int | None = None) -> str:
+    """Generate varied food suggestion lines based on macro gaps."""
     remaining_pro = targets["protein"] - totals.get("protein", 0)
     remaining_fat = targets["fat"] - totals.get("fat", 0)
     remaining_carbs = targets["carbs"] - totals.get("carbs", 0)
     remaining_cal = targets["calories"] - totals.get("calories", 0)
 
+    meal_time = _current_meal_time(user_id)
+    recent_blob = _recently_eaten_names(user_id)
     suggestions = []
 
     if remaining_pro > 15 and remaining_cal > 100:
-        foods = FOOD_SUGGESTIONS_DB["protein"]
-        picks = [f"{name} ({portion} = {pro}g P)" for name, portion, pro, cal in foods if cal <= remaining_cal][:3]
+        picks = _pick_foods(FOOD_SUGGESTIONS_DB["protein"], remaining_cal, meal_time, recent_blob)
         if picks:
-            suggestions.append(f"PROTEIN GAP ({remaining_pro:.0f}g to go). Options: {', '.join(picks)}")
+            opts = ", ".join(f"{name} ({portion} = {g}g P)" for name, portion, g, _cal, _t in picks)
+            suggestions.append(f"PROTEIN GAP ({remaining_pro:.0f}g to go). Options: {opts}")
 
     if remaining_fat > 10 and remaining_cal > 100 and not suggestions:
-        foods = FOOD_SUGGESTIONS_DB["fat"]
-        picks = [f"{name} ({portion} = {fat}g F)" for name, portion, fat, cal in foods if cal <= remaining_cal][:3]
+        picks = _pick_foods(FOOD_SUGGESTIONS_DB["fat"], remaining_cal, meal_time, recent_blob)
         if picks:
-            suggestions.append(f"FAT GAP ({remaining_fat:.0f}g to go). Options: {', '.join(picks)}")
+            opts = ", ".join(f"{name} ({portion} = {g}g F)" for name, portion, g, _cal, _t in picks)
+            suggestions.append(f"FAT GAP ({remaining_fat:.0f}g to go). Options: {opts}")
 
     if remaining_carbs > 30 and remaining_cal > 100 and not suggestions:
-        foods = FOOD_SUGGESTIONS_DB["carbs"]
-        picks = [f"{name} ({portion} = {carb}g C)" for name, portion, carb, cal in foods if cal <= remaining_cal][:3]
+        picks = _pick_foods(FOOD_SUGGESTIONS_DB["carbs"], remaining_cal, meal_time, recent_blob)
         if picks:
-            suggestions.append(f"CARBS GAP ({remaining_carbs:.0f}g to go). Options: {', '.join(picks)}")
+            opts = ", ".join(f"{name} ({portion} = {g}g C)" for name, portion, g, _cal, _t in picks)
+            suggestions.append(f"CARBS GAP ({remaining_carbs:.0f}g to go). Options: {opts}")
+
+    if suggestions:
+        suggestions.append(
+            f"(These are rotating options for a {meal_time} slot — pick different foods than "
+            "last time; never default to the same suggestion every day.)"
+        )
 
     return "\n".join(suggestions)
 
@@ -870,6 +986,40 @@ def _deterministic_query_response(act_result: dict) -> str:
     return "\n".join(lines) if lines else "I don't have enough data to answer that yet. Log some meals, workouts, or weight and I'll be able to tell you more."
 
 
+def _worked_out_today(user_id: int, today: str, act_results: list[dict]) -> bool:
+    """True if a workout was just logged or already recorded for today."""
+    if any(r.get("action") in ("workout_logged", "plan_completed", "workout_logged_no_plan")
+           for r in act_results):
+        return True
+    try:
+        return any(w.get("date") == today for w in db.get_workout_history(user_id, days=1))
+    except Exception:
+        return False
+
+
+def _meal_quality_line(user_id: int, act_results: list[dict], today: str) -> str:
+    """Score a just-logged meal so the coach can react to it naturally."""
+    meals = [r for r in act_results if r.get("action") == "meal_logged"]
+    if not meals:
+        return ""
+    items = []
+    for m in meals:
+        items.extend(m.get("items", []))
+    if not items:
+        return ""
+    try:
+        from fitnessbot.health_benefits import _get_user_weight_kg
+        from fitnessbot.meal_quality import build_meal_quality_signal
+        return build_meal_quality_signal(
+            items,
+            weight_kg=_get_user_weight_kg(user_id),
+            worked_out_today=_worked_out_today(user_id, today, act_results),
+        )
+    except Exception as e:
+        logger.warning("Meal quality signal failed: %s", e)
+        return ""
+
+
 def _build_context_digest(user_id: int, act_results: list[dict]) -> str:
     from fitnessbot.nutrition import get_nutrition_targets
     from fitnessbot.tz import day_utc_range
@@ -896,8 +1046,13 @@ def _build_context_digest(user_id: int, act_results: list[dict]) -> str:
             w_line += f" ({abs(weight['trend_7d']):.1f} {direction} over 7d)"
         lines.append(w_line)
 
+    # Quality of the meal just logged — drives the coach's nudge
+    quality_line = _meal_quality_line(user_id, act_results, today)
+    if quality_line:
+        lines.append(quality_line)
+
     # Add food suggestions for macro gaps
-    food_hints = _get_food_suggestions(targets, totals)
+    food_hints = _get_food_suggestions(targets, totals, user_id)
     if food_hints:
         lines.append("")
         lines.append("FOOD OPTIONS TO FILL GAPS:")
@@ -925,6 +1080,25 @@ def _build_context_digest(user_id: int, act_results: list[dict]) -> str:
         lines.append(f"  {json.dumps(r, default=str)}")
 
     return "\n".join(lines)
+
+
+def _append_meal_nudge(parts: list[str], items: list[dict], user_id: int,
+                       today: str, act_results: list[dict]) -> None:
+    """Append a varied meal-quality nudge to the non-LLM confirmation."""
+    if not items:
+        return
+    try:
+        from fitnessbot.health_benefits import _get_user_weight_kg
+        from fitnessbot.meal_quality import fallback_nudge
+        nudge = fallback_nudge(
+            items,
+            weight_kg=_get_user_weight_kg(user_id),
+            worked_out_today=_worked_out_today(user_id, today, act_results),
+        )
+        if nudge:
+            parts.append(nudge)
+    except Exception as e:
+        logger.warning("Meal nudge failed: %s", e)
 
 
 def _append_workout_benefits(parts: list[str], activity: str, duration_min: int | None, user_id: int) -> None:
@@ -960,6 +1134,7 @@ def _deterministic_confirmation(act_results: list[dict], user_id: int) -> str:
         if action == "meal_logged":
             item_names = ", ".join(i.get("name", "?") for i in r.get("items", [])[:5])
             parts.append(f"Logged: {item_names} \u2014 {r['total_calories']:.0f} cal, {r['total_protein']:.0f}g protein.")
+            _append_meal_nudge(parts, r.get("items", []), user_id, today, act_results)
         elif action == "weight_logged":
             parts.append(f"Logged weight: {r['raw']} {r.get('unit', 'lbs')}. Smoothed: {r['smoothed']} lbs.")
             if r.get("analysis"):
@@ -1066,6 +1241,17 @@ def _get_performance_signal(user_id: int, act_results: list[dict]) -> str:
     workout_results = [r for r in act_results if r.get("action") in ("workout_logged", "plan_completed")]
     if workout_results:
         signals.append("just completed a workout")
+
+    meal_items = [i for r in act_results if r.get("action") == "meal_logged"
+                  for i in r.get("items", [])]
+    if meal_items:
+        from fitnessbot.meal_quality import score_meal
+        q = score_meal(meal_items)
+        if q["is_indulgent"]:
+            signals.append("just logged an indulgent meal — nudge toward movement and a better next choice, "
+                           "with warmth and humor, never shame")
+        elif q["label"] == "solid":
+            signals.append("just logged a genuinely good meal — give specific credit for what made it good")
 
     weight = get_weight_summary(user_id)
     if weight.get("has_data") and weight.get("trend_7d") is not None:
