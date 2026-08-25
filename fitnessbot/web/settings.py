@@ -1,5 +1,7 @@
 """Settings routes: Profile + Connections (Telegram + AI providers)."""
 
+import json
+
 import httpx
 from cryptography.fernet import Fernet
 
@@ -8,7 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from fitnessbot.config import Config
-from fitnessbot import db
+from fitnessbot import db, training_profile
 from fitnessbot.web.auth import get_current_user
 from fitnessbot.inference.factory import _encrypt_key, _mask_key, PROVIDERS, DEFAULT_MODELS
 
@@ -116,12 +118,24 @@ async def settings_page(request: Request):
     blocked_users = db.get_blocked_users(uid)
     wearables = db.get_wearable_connections(uid)
     recent_syncs = db.get_recent_syncs(uid, limit=5)
+    training = training_profile.get_training_profile(uid)
 
     return templates.TemplateResponse(
         "settings.html",
         {
             "request": request,
             "user": user,
+            "training": training,
+            "training_complete": training_profile.is_complete(training),
+            "experience_levels": training_profile.EXPERIENCE_LEVELS,
+            "equipment_options": training_profile.EQUIPMENT_OPTIONS,
+            "movement_exclusions": training_profile.MOVEMENT_EXCLUSIONS,
+            "medical_red_flags": training_profile.MEDICAL_RED_FLAGS,
+            "medical_clearance_notice": training_profile.MEDICAL_CLEARANCE_NOTICE,
+            "days_range": range(
+                training_profile.MIN_DAYS_AVAILABLE,
+                training_profile.MAX_DAYS_AVAILABLE + 1,
+            ),
             "connection": conn_display,
             "providers": providers,
             "has_system_key": has_system_key,
@@ -181,6 +195,47 @@ async def update_profile(
         db.update_user_handle(user["user_id"], handle_val)
 
     return RedirectResponse("/settings?saved=profile", status_code=303)
+
+
+@router.post("/settings/training")
+async def update_training_inputs(
+    request: Request,
+    experience_level: str = Form(""),
+    days_available: str = Form(""),
+    session_time_min: str = Form(""),
+    injuries: str = Form(""),
+    equipment: list[str] = Form([]),
+    movement_exclusions: list[str] = Form([]),
+    medical_flags: list[str] = Form([]),
+):
+    """Capture the training inputs the workout engine needs.
+
+    Everything is normalized before storage, so the engine never has to defend
+    against out-of-range values coming from the DB.
+    """
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse("/login", status_code=303)
+
+    updates = {
+        "experience_level": training_profile.normalize_experience(experience_level),
+        "days_available": training_profile.normalize_days_available(days_available),
+        "session_time_min": training_profile.normalize_session_time(session_time_min),
+        "injuries": training_profile.normalize_injuries(injuries),
+        "equipment": json.dumps(training_profile.normalize_equipment(equipment)),
+        "movement_exclusions": json.dumps(
+            training_profile.normalize_exclusions(movement_exclusions)
+        ),
+        "medical_flags": json.dumps(
+            training_profile.normalize_medical_flags(medical_flags)
+        ),
+        # Records that the screen was actually answered — unchecked boxes are
+        # indistinguishable from "never asked" otherwise.
+        "medical_screen_at": db.utcnow(),
+    }
+    db.update_user(user["user_id"], **updates)
+
+    return RedirectResponse("/settings?saved=training", status_code=303)
 
 
 @router.post("/settings/telegram")

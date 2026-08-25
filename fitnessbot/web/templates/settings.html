@@ -16,6 +16,7 @@
   {% if saved %}
   <div class="px-4 py-3 bg-good-soft text-good text-sm rounded-lg border border-good/20">
     {% if saved == 'profile' %}Profile saved.
+    {% elif saved == 'training' %}Training profile saved.
     {% elif saved == 'telegram' %}Telegram connected.
     {% elif saved == 'telegram_disconnected' %}Telegram disconnected.
     {% elif saved == 'provider' %}API key saved and validated.
@@ -118,6 +119,131 @@
       </div>
       <div class="pt-2">
         <button type="submit" class="px-5 py-2.5 bg-accent text-white text-sm font-semibold rounded-lg hover:bg-accent-press transition-colors">Save Profile</button>
+      </div>
+    </form>
+  </section>
+
+  <!-- Training Profile -->
+  {% set label = {
+    'beginner': 'Beginner (under 1 year of consistent training)',
+    'intermediate': 'Intermediate (1-3 years)',
+    'advanced': 'Advanced (3+ years)',
+    'bodyweight': 'Bodyweight only',
+    'dumbbells': 'Dumbbells',
+    'barbell': 'Barbell',
+    'machines': 'Machines',
+    'bands': 'Resistance bands',
+    'full_gym': 'Full gym',
+    'squat': 'Squatting',
+    'hinge': 'Hinging / deadlifts',
+    'horizontal_push': 'Horizontal push (bench, pushups)',
+    'vertical_push': 'Vertical push (overhead press)',
+    'horizontal_pull': 'Horizontal pull (rows)',
+    'vertical_pull': 'Vertical pull (pullups, pulldowns)',
+    'lunge': 'Lunging / split stance',
+    'carry': 'Loaded carries',
+    'core': 'Direct core work',
+    'overhead': 'Anything overhead',
+    'jumping': 'Jumping / plyometrics',
+    'running': 'Running / impact cardio',
+    'cardiac_history': 'Heart condition or cardiac event history',
+    'uncontrolled_bp': 'High blood pressure that is not controlled',
+    'pregnancy': 'Pregnant or recently postpartum',
+    'recent_surgery': 'Surgery in the last 6 months',
+    'acute_pain': 'Current pain, injury, or unexplained swelling',
+    'dizziness_or_fainting': 'Dizziness or fainting during exertion',
+  } %}
+  <section class="bg-white border border-gray-200 rounded-xl shadow-sm">
+    <div class="px-6 py-4 border-b border-gray-100">
+      <h2 class="font-display text-lg font-semibold">Training Profile</h2>
+      <p class="text-xs text-muted mt-1">Used to build your training routine. Sex, height, weight, and activity level come from your profile above — no need to repeat them.</p>
+    </div>
+    <form method="post" action="/settings/training" class="px-6 py-5 space-y-5">
+      {% if not training_complete %}
+      <div class="px-4 py-3 bg-blue-50 text-blue-700 text-sm rounded-lg border border-blue-200">
+        Not filled in yet — we're assuming beginner, 3 days/week, bodyweight, 60 min sessions until you tell us otherwise.
+      </div>
+      {% endif %}
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div class="sm:col-span-2">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Training Experience</label>
+          <select name="experience_level" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none">
+            {% for level in experience_levels %}
+            <option value="{{ level }}" {{ 'selected' if training.experience_level == level }}>{{ label[level] }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Days Available Per Week</label>
+          <select name="days_available" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none">
+            {% for d in days_range %}
+            <option value="{{ d }}" {{ 'selected' if training.days_available == d }}>{{ d }} days</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Time Per Session (minutes)</label>
+          <input type="number" name="session_time_min" min="20" max="120" step="5" value="{{ training.session_time_min }}"
+                 class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none">
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Equipment Available</label>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {% for option in equipment_options %}
+          <label class="flex items-center gap-2 text-sm text-gray-700 py-1">
+            <input type="checkbox" name="equipment" value="{{ option }}" {{ 'checked' if option in training.equipment }}
+                   class="w-4 h-4 rounded border-gray-300 text-accent focus:ring-accent/30">
+            {{ label[option] }}
+          </label>
+          {% endfor %}
+        </div>
+        <p class="text-xs text-faint mt-1">Pick nothing and we'll program bodyweight only.</p>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Injuries or Limitations</label>
+        <textarea name="injuries" rows="2" maxlength="500" placeholder="e.g. left shoulder impingement, bad knees on deep squats"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-accent/30 focus:border-accent outline-none">{{ training.injuries }}</textarea>
+      </div>
+
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Movements to Avoid</label>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {% for option in movement_exclusions %}
+          <label class="flex items-center gap-2 text-sm text-gray-700 py-1">
+            <input type="checkbox" name="movement_exclusions" value="{{ option }}" {{ 'checked' if option in training.movement_exclusions }}
+                   class="w-4 h-4 rounded border-gray-300 text-accent focus:ring-accent/30">
+            {{ label[option] }}
+          </label>
+          {% endfor %}
+        </div>
+        <p class="text-xs text-faint mt-1">Anything checked here is filtered out of every generated session.</p>
+      </div>
+
+      <div class="border-t border-gray-100 pt-5">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Health Screen</label>
+        <p class="text-xs text-muted mb-2">Check anything that applies to you. This is a safety screen, not a diagnosis.</p>
+        <div class="grid grid-cols-1 gap-2">
+          {% for option in medical_red_flags %}
+          <label class="flex items-center gap-2 text-sm text-gray-700 py-1">
+            <input type="checkbox" name="medical_flags" value="{{ option }}" {{ 'checked' if option in training.medical_flags }}
+                   class="w-4 h-4 rounded border-gray-300 text-accent focus:ring-accent/30">
+            {{ label[option] }}
+          </label>
+          {% endfor %}
+        </div>
+        {% if training.needs_medical_clearance %}
+        <div class="mt-3 px-4 py-3 bg-warm-soft text-miss text-sm rounded-lg border border-miss/20">
+          {{ medical_clearance_notice }}
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="pt-2">
+        <button type="submit" class="px-5 py-2.5 bg-accent text-white text-sm font-semibold rounded-lg hover:bg-accent-press transition-colors">Save Training Profile</button>
       </div>
     </form>
   </section>
