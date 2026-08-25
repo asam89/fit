@@ -56,17 +56,22 @@ def session_dates(week_start: str, day_count: int) -> list[str]:
     return [(monday + timedelta(days=off)).isoformat() for off in offsets]
 
 
-def next_plan_position(user_id: int) -> tuple[int, int]:
+def next_plan_position(user_id: int, week_start: str | None = None) -> tuple[int, int]:
     """Where the user is in their programme: `(mesocycle_index, week_index)`.
 
     A finished deload week closes the mesocycle, which is what rotates the
-    variation seed onto a fresh set of movements.
+    variation seed onto a fresh set of movements. Regenerating a week the user
+    already has holds its position — changing equipment on Wednesday is not a
+    week of training, and letting it advance walks them into a deload they
+    haven't earned.
     """
     latest = _latest_plan_row(user_id)
     if not latest:
         return 0, 1
     mesocycle = int(latest["mesocycle_index"])
     week = int(latest["week_index"])
+    if week_start and latest["week_start"] == week_start:
+        return mesocycle, week
     if week >= workout.DELOAD_CYCLE_WEEKS:
         return mesocycle + 1, 1
     return mesocycle, week + 1
@@ -149,14 +154,21 @@ def one_rm_by_exercise(user_id: int) -> dict[str, float]:
 
 
 def count_missed_sessions(user_id: int, since_days: int = 14) -> int:
-    """Sessions whose date has passed without being completed."""
+    """Sessions whose date has passed without being completed.
+
+    Only sessions from plans still in force count. A regenerated week leaves its
+    old sessions behind, and counting those as missed would read a plan change
+    as a fortnight of skipped training.
+    """
     cutoff = (user_now(user_id).date() - timedelta(days=since_days)).isoformat()
     today = user_now(user_id).date().isoformat()
     conn = db.get_connection()
     try:
         row = conn.execute(
-            """SELECT COUNT(*) AS n FROM workout_sessions
-               WHERE user_id = ? AND status = 'planned' AND date >= ? AND date < ?""",
+            """SELECT COUNT(*) AS n FROM workout_sessions ws
+               JOIN workout_plans wp ON ws.wp_id = wp.wp_id
+               WHERE ws.user_id = ? AND ws.status = 'planned' AND wp.active = 1
+                 AND ws.date >= ? AND ws.date < ?""",
             (user_id, cutoff, today),
         ).fetchone()
         return int(row["n"]) if row else 0
@@ -170,7 +182,7 @@ def count_missed_sessions(user_id: int, since_days: int = 14) -> int:
 def generate_and_save(user_id: int, week_start: str | None = None) -> dict:
     """Generate this user's next week from their logged work and persist it."""
     week_start = week_start or current_week_start(user_id)
-    mesocycle_index, week_index = next_plan_position(user_id)
+    mesocycle_index, week_index = next_plan_position(user_id, week_start)
     plan = workout.build_plan(
         user_id,
         mesocycle_index=mesocycle_index,
@@ -303,7 +315,12 @@ def _session_notes(day: dict, plan: dict) -> str:
 
 
 def _supersede_week(user_id: int, week_start: str) -> None:
-    """Retire an earlier plan for the same week and drop its untouched items."""
+    """Retire an earlier plan for the same week and drop its untouched items.
+
+    Retired sessions are marked `superseded` rather than left `planned`, so
+    adherence and the deload trigger don't read them as training the user
+    skipped.
+    """
     conn = db.get_connection()
     try:
         rows = conn.execute(
@@ -321,6 +338,11 @@ def _supersede_week(user_id: int, week_start: str) -> None:
         ).fetchall()
         conn.execute(
             f"UPDATE workout_plans SET active = 0 WHERE user_id = ? AND wp_id IN ({placeholders})",
+            [user_id, *wp_ids],
+        )
+        conn.execute(
+            f"""UPDATE workout_sessions SET status = 'superseded'
+                WHERE user_id = ? AND wp_id IN ({placeholders}) AND status = 'planned'""",
             [user_id, *wp_ids],
         )
         conn.commit()
@@ -482,6 +504,93 @@ def log_set(
         }
     finally:
         conn.close()
+
+
+def swap_exercise(user_id: int, wep_id: int) -> dict | None:
+    """Replace one prescribed movement with the next legal alternative.
+
+    Rotates through the same candidate order the generator drew from, skipping
+    movements already in the session, and re-prescribes through the engine — so
+    a swap can't smuggle in an excluded pattern or an unearned load. Sets
+    already logged keep their own `exercise_id`, so history stays truthful about
+    what was actually lifted.
+    """
+    conn = db.get_connection()
+    try:
+        row = conn.execute(
+            """SELECT wep.*, ws.wp_id FROM workout_exercise_prescriptions wep
+               JOIN workout_sessions ws ON wep.ws_id = ws.ws_id
+               WHERE wep.wep_id = ? AND wep.user_id = ?""",
+            (wep_id, user_id),
+        ).fetchone()
+        if not row:
+            return None
+        current = dict(row)
+        plan_row = conn.execute(
+            "SELECT plan_json, deload FROM workout_plans WHERE wp_id = ? AND user_id = ?",
+            (current["wp_id"], user_id),
+        ).fetchone()
+        siblings = conn.execute(
+            "SELECT exercise_id FROM workout_exercise_prescriptions WHERE ws_id = ?",
+            (current["ws_id"],),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if not plan_row:
+        return None
+    plan = json.loads(plan_row["plan_json"])
+    accessory = current["pattern"] in workout.ACCESSORY_PATTERNS
+    candidates = workout.pattern_candidates(
+        current["pattern"],
+        plan["equipment"],
+        plan["exclusions"],
+        prefer_compound=not accessory,
+    )
+    in_session = {s["exercise_id"] for s in siblings if s["exercise_id"] != current["exercise_id"]}
+    start = next((i for i, ex in enumerate(candidates) if ex["id"] == current["exercise_id"]), -1)
+    rotated = candidates[start + 1:] + candidates[: start + 1]
+    replacement = next((ex for ex in rotated if ex["id"] not in in_session and ex["id"] != current["exercise_id"]), None)
+    if not replacement:
+        return None
+
+    prescription = workout.prescribe_exercise(
+        replacement,
+        plan["experience"],
+        plan["goal"],
+        plan["intensity"],
+        deload=bool(plan_row["deload"]),
+        history=history_by_exercise(user_id).get(replacement["id"], []),
+        one_rm=one_rm_by_exercise(user_id).get(replacement["id"]),
+    )
+
+    conn = db.get_connection()
+    try:
+        conn.execute(
+            """UPDATE workout_exercise_prescriptions
+               SET exercise_id = ?, name = ?, sets = ?, reps = ?, pct_1rm = ?, rpe = ?,
+                   load = ?, rest_s = ?, progression = ?, note = ?
+               WHERE wep_id = ? AND user_id = ?""",
+            (
+                prescription["exercise_id"],
+                prescription["name"],
+                prescription["sets"],
+                prescription["reps"],
+                prescription["pct_1rm"],
+                prescription["rpe"],
+                prescription["load"],
+                prescription["rest_s"],
+                prescription["progression"],
+                prescription["cue"],
+                wep_id,
+                user_id,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return {"wep_id": wep_id, "ws_id": current["ws_id"], "replaced": current["exercise_id"], **prescription}
 
 
 def complete_session(user_id: int, ws_id: int, actual_duration_min: int | None = None) -> dict | None:
