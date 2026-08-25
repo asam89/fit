@@ -179,6 +179,17 @@ class TestAdjust:
         patterns = {e["pattern"] for s in body["plan"]["sessions"] for e in s["exercises"]}
         assert "squat" not in patterns
 
+    def test_repeated_adjusting_does_not_force_a_deload(self, client):
+        """Found in browser testing: each regenerate advanced the week index and
+        counted the retired week's sessions as missed, so a few taps of Adjust
+        put the user in a deload they hadn't earned."""
+        client.post("/api/workout/generate", json={})
+        for days in (3, 4, 5, 3):
+            client.post("/api/workout/adjust", json={"days_available": days})
+        plan = client.get("/api/workout/current").json()["plan"]
+        assert plan["week_index"] == 1
+        assert plan["deload"] is False
+
     def test_adjusting_nothing_is_rejected(self, client):
         assert client.post("/api/workout/adjust", json={"nickname": "x"}).status_code == 400
 

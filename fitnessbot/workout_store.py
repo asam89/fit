@@ -56,17 +56,22 @@ def session_dates(week_start: str, day_count: int) -> list[str]:
     return [(monday + timedelta(days=off)).isoformat() for off in offsets]
 
 
-def next_plan_position(user_id: int) -> tuple[int, int]:
+def next_plan_position(user_id: int, week_start: str | None = None) -> tuple[int, int]:
     """Where the user is in their programme: `(mesocycle_index, week_index)`.
 
     A finished deload week closes the mesocycle, which is what rotates the
-    variation seed onto a fresh set of movements.
+    variation seed onto a fresh set of movements. Regenerating a week the user
+    already has holds its position — changing equipment on Wednesday is not a
+    week of training, and letting it advance walks them into a deload they
+    haven't earned.
     """
     latest = _latest_plan_row(user_id)
     if not latest:
         return 0, 1
     mesocycle = int(latest["mesocycle_index"])
     week = int(latest["week_index"])
+    if week_start and latest["week_start"] == week_start:
+        return mesocycle, week
     if week >= workout.DELOAD_CYCLE_WEEKS:
         return mesocycle + 1, 1
     return mesocycle, week + 1
@@ -149,14 +154,21 @@ def one_rm_by_exercise(user_id: int) -> dict[str, float]:
 
 
 def count_missed_sessions(user_id: int, since_days: int = 14) -> int:
-    """Sessions whose date has passed without being completed."""
+    """Sessions whose date has passed without being completed.
+
+    Only sessions from plans still in force count. A regenerated week leaves its
+    old sessions behind, and counting those as missed would read a plan change
+    as a fortnight of skipped training.
+    """
     cutoff = (user_now(user_id).date() - timedelta(days=since_days)).isoformat()
     today = user_now(user_id).date().isoformat()
     conn = db.get_connection()
     try:
         row = conn.execute(
-            """SELECT COUNT(*) AS n FROM workout_sessions
-               WHERE user_id = ? AND status = 'planned' AND date >= ? AND date < ?""",
+            """SELECT COUNT(*) AS n FROM workout_sessions ws
+               JOIN workout_plans wp ON ws.wp_id = wp.wp_id
+               WHERE ws.user_id = ? AND ws.status = 'planned' AND wp.active = 1
+                 AND ws.date >= ? AND ws.date < ?""",
             (user_id, cutoff, today),
         ).fetchone()
         return int(row["n"]) if row else 0
@@ -170,7 +182,7 @@ def count_missed_sessions(user_id: int, since_days: int = 14) -> int:
 def generate_and_save(user_id: int, week_start: str | None = None) -> dict:
     """Generate this user's next week from their logged work and persist it."""
     week_start = week_start or current_week_start(user_id)
-    mesocycle_index, week_index = next_plan_position(user_id)
+    mesocycle_index, week_index = next_plan_position(user_id, week_start)
     plan = workout.build_plan(
         user_id,
         mesocycle_index=mesocycle_index,
@@ -303,7 +315,12 @@ def _session_notes(day: dict, plan: dict) -> str:
 
 
 def _supersede_week(user_id: int, week_start: str) -> None:
-    """Retire an earlier plan for the same week and drop its untouched items."""
+    """Retire an earlier plan for the same week and drop its untouched items.
+
+    Retired sessions are marked `superseded` rather than left `planned`, so
+    adherence and the deload trigger don't read them as training the user
+    skipped.
+    """
     conn = db.get_connection()
     try:
         rows = conn.execute(
@@ -321,6 +338,11 @@ def _supersede_week(user_id: int, week_start: str) -> None:
         ).fetchall()
         conn.execute(
             f"UPDATE workout_plans SET active = 0 WHERE user_id = ? AND wp_id IN ({placeholders})",
+            [user_id, *wp_ids],
+        )
+        conn.execute(
+            f"""UPDATE workout_sessions SET status = 'superseded'
+                WHERE user_id = ? AND wp_id IN ({placeholders}) AND status = 'planned'""",
             [user_id, *wp_ids],
         )
         conn.commit()

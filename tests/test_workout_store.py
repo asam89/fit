@@ -462,6 +462,27 @@ class TestProgrammePosition:
         workout_store.generate_and_save(uid, next_week)
         assert workout_store.count_missed_sessions(uid) == 0
 
+    def test_regenerating_a_week_holds_its_position(self, store):
+        """Changing equipment mid-week is not a week of training."""
+        workout_store, _, uid, _ = store
+        saved = workout_store.generate_and_save(uid, "2026-06-22")
+        for _ in range(4):
+            saved = workout_store.generate_and_save(uid, "2026-06-22")
+        assert workout_store.next_plan_position(uid, "2026-06-22") == (0, 1)
+        assert saved["plan"]["week_index"] == 1
+        assert saved["plan"]["deload"] is False
+
+    def test_superseded_sessions_do_not_count_as_missed(self, store):
+        """A regenerated week must not read as a fortnight of skipped training."""
+        workout_store, _, uid, _ = store
+        today = date.today()
+        last_week = (today - timedelta(days=today.weekday() + 7)).isoformat()
+        workout_store.generate_and_save(uid, last_week)
+        missed_once = workout_store.count_missed_sessions(uid)
+        for _ in range(3):
+            workout_store.generate_and_save(uid, last_week)
+        assert workout_store.count_missed_sessions(uid) == missed_once
+
 
 class TestCurrentPlanLookup:
     def test_current_week_plan_is_found(self, store):
