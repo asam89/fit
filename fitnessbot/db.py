@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 
 SCHEMA_SQL = """
 -- users
@@ -121,8 +121,9 @@ CREATE TABLE IF NOT EXISTS diet_plans (
     expires_at TEXT
 );
 
--- training_plans (AI-generated phased programs)
-CREATE TABLE IF NOT EXISTS training_plans (
+-- training_plans_legacy (AI-generated phased programs, superseded by the
+-- weekly plan/calendar below; migration 9 renamed it out of the way)
+CREATE TABLE IF NOT EXISTS training_plans_legacy (
     tp_id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     goal_id INTEGER REFERENCES goals(goal_id),
@@ -133,13 +134,42 @@ CREATE TABLE IF NOT EXISTS training_plans (
     start_date TEXT,
     end_date TEXT,
     workouts_json TEXT,  -- JSON array of daily workouts
-    superseded_by INTEGER REFERENCES training_plans(tp_id)
+    superseded_by INTEGER REFERENCES training_plans_legacy(tp_id)
 );
+
+-- weekly training plan + calendar items (the live plan surface)
+CREATE TABLE IF NOT EXISTS training_plans (
+    plan_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    week_start TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    UNIQUE(user_id, week_start)
+);
+
+CREATE TABLE IF NOT EXISTS training_plan_items (
+    item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id INTEGER NOT NULL REFERENCES training_plans(plan_id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    date TEXT NOT NULL,
+    day_of_week INTEGER NOT NULL,
+    activity_type TEXT NOT NULL DEFAULT 'other',
+    title TEXT NOT NULL,
+    planned_duration_min INTEGER,
+    notes TEXT,
+    position INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'planned',
+    completed_at TEXT,
+    linked_exercise_id INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_tpi_user_date ON training_plan_items(user_id, date);
+CREATE INDEX IF NOT EXISTS idx_tpi_plan ON training_plan_items(plan_id);
 
 -- daily_workouts (individual workout prescriptions)
 CREATE TABLE IF NOT EXISTS daily_workouts (
     dw_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tp_id INTEGER REFERENCES training_plans(tp_id),
+    tp_id INTEGER REFERENCES training_plans_legacy(tp_id),
     user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     scheduled_date TEXT NOT NULL,
     workout_type TEXT,  -- daily_small, gym, rest, sport_specific
@@ -465,6 +495,81 @@ CREATE TABLE IF NOT EXISTS schema_version (
     applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 """
+
+# Generated-workout persistence. Kept as a statement list so the same DDL runs
+# both here (fresh DB) and in migration 23 (existing DB) — a table that only
+# exists in a migration is missing on any fresh install, because init_db()
+# stamps the current SCHEMA_VERSION and the migration never runs.
+WORKOUT_SCHEMA_SQL = (
+    """CREATE TABLE IF NOT EXISTS workout_plans (
+        wp_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        week_start TEXT NOT NULL,
+        goal TEXT NOT NULL,
+        experience TEXT NOT NULL,
+        split_key TEXT NOT NULL,
+        split_name TEXT NOT NULL,
+        mesocycle_index INTEGER NOT NULL DEFAULT 0,
+        week_index INTEGER NOT NULL DEFAULT 1,
+        deload INTEGER NOT NULL DEFAULT 0,
+        next_deload_week INTEGER,
+        variation_seed INTEGER,
+        progression_rule TEXT,
+        plan_json TEXT NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))""",
+    "CREATE INDEX IF NOT EXISTS idx_wp_user_week ON workout_plans(user_id, week_start)",
+    """CREATE TABLE IF NOT EXISTS workout_sessions (
+        ws_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        wp_id INTEGER NOT NULL REFERENCES workout_plans(wp_id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        date TEXT NOT NULL,
+        day_index INTEGER NOT NULL,
+        focus TEXT NOT NULL,
+        title TEXT NOT NULL,
+        planned_duration_min INTEGER,
+        cardio_json TEXT,
+        status TEXT NOT NULL DEFAULT 'planned',
+        completed_at TEXT,
+        item_id INTEGER REFERENCES training_plan_items(item_id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))""",
+    "CREATE INDEX IF NOT EXISTS idx_ws_user_date ON workout_sessions(user_id, date)",
+    "CREATE INDEX IF NOT EXISTS idx_ws_plan ON workout_sessions(wp_id)",
+    """CREATE TABLE IF NOT EXISTS workout_exercise_prescriptions (
+        wep_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ws_id INTEGER NOT NULL REFERENCES workout_sessions(ws_id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        exercise_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        pattern TEXT NOT NULL,
+        position INTEGER NOT NULL DEFAULT 0,
+        sets INTEGER NOT NULL,
+        reps INTEGER NOT NULL,
+        pct_1rm REAL,
+        rpe REAL,
+        load REAL,
+        rest_s INTEGER,
+        progression TEXT,
+        note TEXT)""",
+    "CREATE INDEX IF NOT EXISTS idx_wep_session ON workout_exercise_prescriptions(ws_id)",
+    "CREATE INDEX IF NOT EXISTS idx_wep_user_exercise ON workout_exercise_prescriptions(user_id, exercise_id)",
+    """CREATE TABLE IF NOT EXISTS workout_set_log (
+        wsl_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        wep_id INTEGER REFERENCES workout_exercise_prescriptions(wep_id) ON DELETE SET NULL,
+        ws_id INTEGER REFERENCES workout_sessions(ws_id) ON DELETE SET NULL,
+        exercise_id TEXT NOT NULL,
+        set_index INTEGER NOT NULL,
+        reps INTEGER NOT NULL,
+        weight REAL,
+        rpe REAL,
+        completed INTEGER NOT NULL DEFAULT 1,
+        logged_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))""",
+    "CREATE INDEX IF NOT EXISTS idx_wsl_user_exercise ON workout_set_log(user_id, exercise_id)",
+    "CREATE INDEX IF NOT EXISTS idx_wsl_session ON workout_set_log(ws_id)",
+)
+
+SCHEMA_SQL += ";\n".join(WORKOUT_SCHEMA_SQL) + ";\n"
 
 
 def get_db_path() -> str:
@@ -1111,6 +1216,16 @@ def run_migrations() -> None:
                 except sqlite3.OperationalError:
                     pass  # column already exists
             conn.execute("INSERT INTO schema_version (version) VALUES (22)")
+            conn.commit()
+            current = 22
+
+        if current < 23:
+            for sql in WORKOUT_SCHEMA_SQL:
+                try:
+                    conn.execute(sql)
+                except sqlite3.OperationalError:
+                    pass
+            conn.execute("INSERT INTO schema_version (version) VALUES (23)")
             conn.commit()
 
     except sqlite3.OperationalError:
