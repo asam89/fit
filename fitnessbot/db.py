@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 22
 
 SCHEMA_SQL = """
 -- users
@@ -24,6 +24,14 @@ CREATE TABLE IF NOT EXISTS users (
     activity_level TEXT,
     dietary_restrictions TEXT,  -- JSON
     feedback_tone_preference TEXT DEFAULT 'neutral',
+    experience_level TEXT,
+    days_available INTEGER,
+    equipment TEXT,  -- JSON array
+    session_time_min INTEGER,
+    injuries TEXT,
+    movement_exclusions TEXT,  -- JSON array
+    medical_flags TEXT,  -- JSON array
+    medical_screen_at TEXT,
     is_superadmin INTEGER NOT NULL DEFAULT 0,
     last_active_at TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
@@ -1086,6 +1094,25 @@ def run_migrations() -> None:
             conn.execute("INSERT INTO schema_version (version) VALUES (21)")
             conn.commit()
 
+        # --- Migration 22: training inputs for the workout engine ---
+        if current < 22:
+            for col_name, col_type in [
+                ("experience_level", "TEXT"),
+                ("days_available", "INTEGER"),
+                ("equipment", "TEXT"),           # JSON array
+                ("session_time_min", "INTEGER"),
+                ("injuries", "TEXT"),            # free text
+                ("movement_exclusions", "TEXT"),  # JSON array
+                ("medical_flags", "TEXT"),        # JSON array
+                ("medical_screen_at", "TEXT"),
+            ]:
+                try:
+                    conn.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
+                except sqlite3.OperationalError:
+                    pass  # column already exists
+            conn.execute("INSERT INTO schema_version (version) VALUES (22)")
+            conn.commit()
+
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
         init_db()
@@ -1148,6 +1175,8 @@ def update_user(user_id: int, **kwargs) -> None:
         "display_name", "timezone", "sex", "height", "birthdate",
         "units_pref", "activity_level", "dietary_restrictions",
         "active_provider", "active_model", "feedback_tone_preference",
+        "experience_level", "days_available", "equipment", "session_time_min",
+        "injuries", "movement_exclusions", "medical_flags", "medical_screen_at",
     }
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:
