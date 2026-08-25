@@ -695,6 +695,48 @@
     </div>
   </section>
 
+  <!-- ===== THIS WEEK'S TRAINING (generated) ===== -->
+  <section id="workout">
+    <div class="card p-5">
+      <div class="flex items-center justify-between mb-3">
+        <span class="eyebrow">This Week's Training</span>
+        <div class="flex items-center gap-2">
+          <button id="woAdjustBtn" class="text-xs text-faint hover:text-muted">Adjust</button>
+          <button id="woGenerateBtn" class="text-xs font-medium text-accent hover:text-accent-press">Generate</button>
+        </div>
+      </div>
+      <div id="woSummary" class="text-xs text-muted mb-3">Loading...</div>
+
+      <!-- Adjust panel -->
+      <div id="woAdjust" class="hidden mb-3 p-3 bg-gray-50 rounded-lg text-xs">
+        <div class="grid grid-cols-2 gap-2 mb-2">
+          <label class="flex flex-col gap-1">
+            <span class="text-faint">Days per week</span>
+            <input id="woDays" type="number" class="border rounded px-2 py-1">
+          </label>
+          <label class="flex flex-col gap-1">
+            <span class="text-faint">Session length (min)</span>
+            <input id="woMinutes" type="number" class="border rounded px-2 py-1">
+          </label>
+        </div>
+        <div class="mb-2">
+          <div class="text-faint mb-1">Equipment</div>
+          <div id="woEquipment" class="flex flex-wrap gap-2"></div>
+        </div>
+        <div class="mb-2">
+          <div class="text-faint mb-1">Movements to avoid</div>
+          <div id="woExclusions" class="flex flex-wrap gap-2"></div>
+        </div>
+        <div class="flex gap-2">
+          <button id="woAdjustSave" class="text-xs font-medium bg-accent text-white px-3 py-1 rounded hover:bg-accent-press">Save &amp; regenerate</button>
+          <button id="woAdjustCancel" class="text-xs text-faint hover:text-muted px-2 py-1">Cancel</button>
+        </div>
+      </div>
+
+      <div id="woSessions" class="space-y-2"></div>
+    </div>
+  </section>
+
   <!-- ===== WEEKLY TRAINING PLAN ===== -->
   <section id="training-plan">
     <div class="card p-5">
@@ -1589,6 +1631,8 @@ document.querySelectorAll('[data-range]').forEach(btn=>{
       grid.innerHTML='<p class="col-span-7 text-faint text-xs">Could not load plan</p>';
     }
   }
+  // Generated sessions land on this calendar, so the training card refreshes it.
+  window.loadPlan = loadPlan;
 
   function renderPlan(data){
     label.textContent = data.week_label;
@@ -1693,6 +1737,181 @@ document.querySelectorAll('[data-range]').forEach(btn=>{
   };
 
   loadPlan();
+})();
+</script>
+
+<!-- ===== THIS WEEK'S TRAINING JS ===== -->
+<script>
+(function(){
+  const summary = document.getElementById('woSummary');
+  const list = document.getElementById('woSessions');
+  const adjust = document.getElementById('woAdjust');
+  const DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  let state = null;
+  let open = new Set();
+
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  async function api(url, method, body){
+    const opts = {method: method || 'GET'};
+    if(body){ opts.headers = {'Content-Type':'application/json'}; opts.body = JSON.stringify(body); }
+    const r = await fetch(url, opts);
+    if(!r.ok) return null;
+    return r.json();
+  }
+
+  async function load(){
+    const data = await api('/api/workout/current');
+    if(!data){ summary.textContent = 'Could not load training.'; return; }
+    state = data;
+    render();
+  }
+
+  function checkboxes(containerId, options, selected){
+    document.getElementById(containerId).innerHTML = options.map(opt => `
+      <label class="flex items-center gap-1">
+        <input type="checkbox" value="${esc(opt)}" ${selected.includes(opt)?'checked':''}>
+        <span>${esc(opt.replace(/_/g,' '))}</span>
+      </label>`).join('');
+  }
+
+  function picked(containerId){
+    return Array.from(document.querySelectorAll('#'+containerId+' input:checked')).map(i => i.value);
+  }
+
+  function render(){
+    const plan = state.plan;
+
+    if(state.clearance_notice){
+      summary.innerHTML = `<div class="p-2 rounded bg-amber-50 text-amber-800">${esc(state.clearance_notice)}</div>`;
+    } else if(!plan){
+      summary.innerHTML = `No generated plan for this week yet. <span class="text-faint">Generate one from your training profile (${esc(state.profile.days_available)} days, ${esc(state.profile.session_time_min)} min, ${esc(state.profile.equipment.join(', '))}).</span>`;
+    } else {
+      const bits = [`<span class="font-medium text-ink">${esc(plan.split)}</span>`,
+                    `${esc(plan.goal.replace(/_/g,' '))}`,
+                    `week ${plan.week_index}`,
+                    `${plan.sessions.length} sessions`];
+      if(plan.deload) bits.push('<span class="text-amber-600 font-medium">deload week</span>');
+      let html = bits.join(' · ');
+      if(plan.cardio && plan.cardio.sessions_per_week){
+        html += `<div class="mt-1 text-faint">Cardio: ${plan.cardio.sessions_per_week}× ${plan.cardio.minutes_per_session} min ${esc(plan.cardio.intensity)} ${esc(plan.cardio.modality)}</div>`;
+      }
+      (plan.notes||[]).forEach(n => { html += `<div class="mt-1 text-faint">${esc(n)}</div>`; });
+      const short = plan.volume_shortfall && Object.keys(plan.volume_shortfall).length
+        ? Object.entries(plan.volume_shortfall).map(([m,g]) => `${esc(m)} −${g}`).join(', ') : null;
+      if(short) html += `<div class="mt-1 text-faint">Below weekly target (sets): ${short}</div>`;
+      summary.innerHTML = html;
+    }
+
+    if(!plan){ list.innerHTML = ''; return; }
+
+    list.innerHTML = plan.sessions.map(s => {
+      const isOpen = open.has(s.ws_id);
+      const done = s.status === 'completed';
+      const isToday = s.date === plan.today;
+      const dow = DAY_NAMES[new Date(s.date+'T00:00:00').getDay() === 0 ? 6 : new Date(s.date+'T00:00:00').getDay()-1];
+      const logged = s.exercises.reduce((n,e) => n + (e.sets_done||0), 0);
+      const planned = s.exercises.reduce((n,e) => n + e.sets, 0);
+
+      let html = `<div class="rounded border ${isToday?'border-accent/30 bg-accent/5':'border-gray-100'}">`;
+      html += `<button class="wo-toggle w-full flex items-center gap-2 p-2 text-left" data-ws="${s.ws_id}">
+          <span class="font-mono text-[10px] ${isToday?'text-accent font-bold':'text-faint'} w-8">${dow}</span>
+          <span class="text-xs flex-1 ${done?'line-through text-muted':'text-ink'}">${esc(s.title)}</span>
+          <span class="text-[10px] font-mono text-faint">${logged}/${planned} sets</span>
+          ${s.planned_duration_min?`<span class="text-[10px] font-mono text-faint">${s.planned_duration_min}m</span>`:''}
+          <span class="text-[10px] text-faint">${isOpen?'▾':'▸'}</span>
+        </button>`;
+
+      if(isOpen){
+        html += '<div class="px-2 pb-2 space-y-2">';
+        s.exercises.forEach(e => {
+          const target = e.load ? `${e.load} kg` : `RPE ${e.rpe}`;
+          html += `<div class="p-2 rounded bg-white border border-gray-100">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-medium text-ink flex-1">${esc(e.name)}</span>
+              <span class="text-[10px] font-mono text-muted">${e.sets}×${e.reps} @ ${esc(target)}</span>
+              <button class="wo-swap text-[10px] text-faint hover:text-accent" data-wep="${e.wep_id}" title="Swap for another movement">swap</button>
+            </div>
+            <div class="text-[10px] text-faint mt-0.5">${esc(e.pattern.replace(/_/g,' '))} · rest ${e.rest_s}s${e.note?' · '+esc(e.note):''}</div>
+            <div class="flex items-center gap-1 mt-1">
+              <input class="wo-reps w-14 text-[10px] border rounded px-1 py-0.5" type="number" placeholder="reps" value="${e.reps}" data-wep="${e.wep_id}">
+              <input class="wo-weight w-16 text-[10px] border rounded px-1 py-0.5" type="number" step="0.5" placeholder="kg" ${e.load?`value="${e.load}"`:''} data-wep="${e.wep_id}">
+              <input class="wo-rpe w-14 text-[10px] border rounded px-1 py-0.5" type="number" step="0.5" placeholder="RPE" data-wep="${e.wep_id}">
+              <button class="wo-log text-[10px] font-medium text-accent hover:text-accent-press" data-wep="${e.wep_id}">Log set</button>
+              <span class="text-[10px] font-mono text-faint ml-auto">${e.sets_done||0}/${e.sets}</span>
+            </div>`;
+          if((e.logged_sets||[]).length){
+            html += `<div class="text-[10px] font-mono text-faint mt-1">${e.logged_sets.map(l => `${l.reps}${l.weight?'×'+l.weight:''}`).join(' · ')}</div>`;
+          }
+          html += '</div>';
+        });
+        if(s.cardio){
+          html += `<div class="text-[10px] text-faint px-1">+ ${s.cardio.minutes_per_session} min ${esc(s.cardio.intensity)} ${esc(s.cardio.modality)}</div>`;
+        }
+        if(!done){
+          html += `<button class="wo-complete text-xs font-medium bg-accent text-white px-3 py-1 rounded hover:bg-accent-press" data-ws="${s.ws_id}">Mark session done</button>`;
+        }
+        html += '</div>';
+      }
+      return html + '</div>';
+    }).join('');
+
+    list.querySelectorAll('.wo-toggle').forEach(b => b.onclick = () => {
+      const id = parseInt(b.dataset.ws);
+      open.has(id) ? open.delete(id) : open.add(id);
+      render();
+    });
+    list.querySelectorAll('.wo-log').forEach(b => b.onclick = async () => {
+      const wep = b.dataset.wep;
+      const val = sel => document.querySelector(`.${sel}[data-wep="${wep}"]`).value;
+      await api('/api/workout/log','POST',{wep_id: parseInt(wep), reps: parseInt(val('wo-reps')), weight: val('wo-weight'), rpe: val('wo-rpe')});
+      load();
+    });
+    list.querySelectorAll('.wo-swap').forEach(b => b.onclick = async () => {
+      await api('/api/workout/adjust','POST',{swap_wep_id: parseInt(b.dataset.wep)});
+      load();
+    });
+    list.querySelectorAll('.wo-complete').forEach(b => b.onclick = async () => {
+      await api('/api/workout/log','POST',{ws_id: parseInt(b.dataset.ws), complete_session: true});
+      load();
+      if(window.loadPlan) window.loadPlan();
+    });
+  }
+
+  document.getElementById('woGenerateBtn').onclick = async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = 'Generating...';
+    await api('/api/workout/generate','POST',{});
+    e.target.disabled = false;
+    e.target.textContent = 'Generate';
+    open = new Set();
+    await load();
+    if(window.loadPlan) window.loadPlan();
+  };
+
+  document.getElementById('woAdjustBtn').onclick = () => {
+    if(!state) return;
+    document.getElementById('woDays').value = state.profile.days_available;
+    document.getElementById('woMinutes').value = state.profile.session_time_min;
+    checkboxes('woEquipment', state.options.equipment, state.profile.equipment);
+    checkboxes('woExclusions', state.options.exclusions, state.profile.movement_exclusions);
+    adjust.classList.toggle('hidden');
+  };
+  document.getElementById('woAdjustCancel').onclick = () => adjust.classList.add('hidden');
+  document.getElementById('woAdjustSave').onclick = async () => {
+    await api('/api/workout/adjust','POST',{
+      days_available: document.getElementById('woDays').value,
+      session_time_min: document.getElementById('woMinutes').value,
+      equipment: picked('woEquipment'),
+      movement_exclusions: picked('woExclusions'),
+    });
+    adjust.classList.add('hidden');
+    open = new Set();
+    await load();
+    if(window.loadPlan) window.loadPlan();
+  };
+
+  load();
 })();
 </script>
 

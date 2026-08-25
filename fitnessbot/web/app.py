@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from fitnessbot.config import Config
-from fitnessbot.web import admin, auth, connections, dashboard, goals, health_data, plan, profile, settings, social
+from fitnessbot.web import admin, auth, connections, dashboard, goals, health_data, plan, profile, settings, social, workout
 
 
 def create_app() -> FastAPI:
@@ -25,6 +25,7 @@ def create_app() -> FastAPI:
     app.include_router(settings.router)
     app.include_router(goals.router)
     app.include_router(plan.router)
+    app.include_router(workout.router)
     app.include_router(social.router)
     app.include_router(admin.router)
     # Legacy routes kept for backward compatibility

@@ -282,21 +282,17 @@ def is_loadable(ex: dict) -> bool:
     return bool(set(ex.get("equipment") or []).intersection(LOADING_EQUIPMENT))
 
 
-def select_exercises(
+def pattern_candidates(
     pattern: str,
     equipment: list[str],
     exclusions: list[str],
-    seed: int,
-    count: int = 1,
     exercises: tuple[dict, ...] | None = None,
     prefer_compound: bool = True,
 ) -> list[dict]:
-    """Pick `count` movements for a pattern, rotated by the variation seed.
+    """Every legal movement for a pattern, in a stable order.
 
-    Candidates are sorted by id so the choice is reproducible, then offset by
-    the seed: two users with identical inputs get equally valid but different
-    exercises, and the same user gets fresh ones each mesocycle. Compounds fill
-    main slots first so an isolation movement never leads a session, and
+    Sorted by id so any choice made from this list is reproducible. Compounds
+    fill main slots first so an isolation movement never leads a session, and
     loadable movements win when the user has something to load them with.
     """
     library = exercises if exercises is not None else load_exercise_library()
@@ -310,6 +306,25 @@ def select_exercises(
         if has_loading_equipment(equipment):
             loadable = [ex for ex in candidates if is_loadable(ex)]
             candidates = loadable or candidates
+    return candidates
+
+
+def select_exercises(
+    pattern: str,
+    equipment: list[str],
+    exclusions: list[str],
+    seed: int,
+    count: int = 1,
+    exercises: tuple[dict, ...] | None = None,
+    prefer_compound: bool = True,
+) -> list[dict]:
+    """Pick `count` movements for a pattern, rotated by the variation seed.
+
+    The seed offsets into the candidate order: two users with identical inputs
+    get equally valid but different exercises, and the same user gets fresh ones
+    each mesocycle.
+    """
+    candidates = pattern_candidates(pattern, equipment, exclusions, exercises, prefer_compound)
     if not candidates:
         return []
     return [candidates[(seed + i) % len(candidates)] for i in range(count)]
@@ -566,6 +581,52 @@ def next_prescription(experience: str, history: list[dict], goal: str = DEFAULT_
         "rule": rule,
         "change": "undulate",
         "note": f"{'Heavy' if wave_position > 0.75 else 'Moderate' if wave_position > 0.25 else 'Light'} session — {reps} reps at ~{round(pct)}% of an estimated {one_rm} 1RM.",
+    }
+
+
+def prescribe_exercise(
+    ex: dict,
+    experience: str,
+    goal: str,
+    scheme: dict,
+    *,
+    deload: bool = False,
+    history: list[dict] | None = None,
+    one_rm: float | None = None,
+) -> dict:
+    """One movement's full prescription, in the plan's exercise shape.
+
+    The single place a prescribed number is produced, so a movement swapped in
+    after generation is programmed by exactly the same rules as one the
+    generator chose — accessory caps, deload factors and all.
+    """
+    accessory = ex["pattern"] in ACCESSORY_PATTERNS
+    prescription = next_prescription(experience, history or [], goal)
+    load = prescription["load"]
+    if load is None:
+        load = load_from_1rm(one_rm, scheme["pct_1rm"][0])
+    sets = int(clamp(prescription["sets"], MIN_SETS_PER_EXERCISE, MAX_SETS_PER_EXERCISE))
+    reps = prescription["reps"]
+    if accessory:
+        sets = ACCESSORY_SETS
+        reps = int(clamp(reps, ACCESSORY_MIN_REPS, ACCESSORY_MAX_REPS))
+        load = None
+    if deload:
+        sets, load = apply_deload(sets, load)
+    return {
+        "exercise_id": ex["id"],
+        "name": ex["name"],
+        "pattern": ex["pattern"],
+        "primary": list(ex.get("primary", [])),
+        "secondary": list(ex.get("secondary", [])),
+        "sets": sets,
+        "reps": reps,
+        "pct_1rm": None if accessory else (prescription.get("pct_1rm") or scheme["pct_1rm"][0]),
+        "rpe": prescription["rpe"],
+        "load": load,
+        "rest_s": rest_seconds(scheme, ex["pattern"], bool(ex.get("compound"))),
+        "progression": prescription["change"],
+        "cue": prescription["note"],
     }
 
 
@@ -870,34 +931,16 @@ def generate_plan(
             if ex is None:
                 continue
             used_ids.add(ex["id"])
-            prescription = next_prescription(experience, history_by_exercise.get(ex["id"], []), goal)
-            load = prescription["load"]
-            if load is None:
-                load = load_from_1rm(one_rm_by_exercise.get(ex["id"]), scheme["pct_1rm"][0])
-            sets = int(clamp(prescription["sets"], MIN_SETS_PER_EXERCISE, MAX_SETS_PER_EXERCISE))
-            reps = prescription["reps"]
-            if accessory:
-                sets = ACCESSORY_SETS
-                reps = int(clamp(reps, ACCESSORY_MIN_REPS, ACCESSORY_MAX_REPS))
-                load = None
-            if deload:
-                sets, load = apply_deload(sets, load)
             day_exercises.append(
-                {
-                    "exercise_id": ex["id"],
-                    "name": ex["name"],
-                    "pattern": ex["pattern"],
-                    "primary": list(ex.get("primary", [])),
-                    "secondary": list(ex.get("secondary", [])),
-                    "sets": sets,
-                    "reps": reps,
-                    "pct_1rm": None if accessory else (prescription.get("pct_1rm") or scheme["pct_1rm"][0]),
-                    "rpe": prescription["rpe"],
-                    "load": load,
-                    "rest_s": rest_seconds(scheme, ex["pattern"], bool(ex.get("compound"))),
-                    "progression": prescription["change"],
-                    "cue": prescription["note"],
-                }
+                prescribe_exercise(
+                    ex,
+                    experience,
+                    goal,
+                    scheme,
+                    deload=deload,
+                    history=history_by_exercise.get(ex["id"], []),
+                    one_rm=one_rm_by_exercise.get(ex["id"]),
+                )
             )
         day = {
             "focus": focus,

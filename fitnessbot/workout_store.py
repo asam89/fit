@@ -484,6 +484,93 @@ def log_set(
         conn.close()
 
 
+def swap_exercise(user_id: int, wep_id: int) -> dict | None:
+    """Replace one prescribed movement with the next legal alternative.
+
+    Rotates through the same candidate order the generator drew from, skipping
+    movements already in the session, and re-prescribes through the engine — so
+    a swap can't smuggle in an excluded pattern or an unearned load. Sets
+    already logged keep their own `exercise_id`, so history stays truthful about
+    what was actually lifted.
+    """
+    conn = db.get_connection()
+    try:
+        row = conn.execute(
+            """SELECT wep.*, ws.wp_id FROM workout_exercise_prescriptions wep
+               JOIN workout_sessions ws ON wep.ws_id = ws.ws_id
+               WHERE wep.wep_id = ? AND wep.user_id = ?""",
+            (wep_id, user_id),
+        ).fetchone()
+        if not row:
+            return None
+        current = dict(row)
+        plan_row = conn.execute(
+            "SELECT plan_json, deload FROM workout_plans WHERE wp_id = ? AND user_id = ?",
+            (current["wp_id"], user_id),
+        ).fetchone()
+        siblings = conn.execute(
+            "SELECT exercise_id FROM workout_exercise_prescriptions WHERE ws_id = ?",
+            (current["ws_id"],),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if not plan_row:
+        return None
+    plan = json.loads(plan_row["plan_json"])
+    accessory = current["pattern"] in workout.ACCESSORY_PATTERNS
+    candidates = workout.pattern_candidates(
+        current["pattern"],
+        plan["equipment"],
+        plan["exclusions"],
+        prefer_compound=not accessory,
+    )
+    in_session = {s["exercise_id"] for s in siblings if s["exercise_id"] != current["exercise_id"]}
+    start = next((i for i, ex in enumerate(candidates) if ex["id"] == current["exercise_id"]), -1)
+    rotated = candidates[start + 1:] + candidates[: start + 1]
+    replacement = next((ex for ex in rotated if ex["id"] not in in_session and ex["id"] != current["exercise_id"]), None)
+    if not replacement:
+        return None
+
+    prescription = workout.prescribe_exercise(
+        replacement,
+        plan["experience"],
+        plan["goal"],
+        plan["intensity"],
+        deload=bool(plan_row["deload"]),
+        history=history_by_exercise(user_id).get(replacement["id"], []),
+        one_rm=one_rm_by_exercise(user_id).get(replacement["id"]),
+    )
+
+    conn = db.get_connection()
+    try:
+        conn.execute(
+            """UPDATE workout_exercise_prescriptions
+               SET exercise_id = ?, name = ?, sets = ?, reps = ?, pct_1rm = ?, rpe = ?,
+                   load = ?, rest_s = ?, progression = ?, note = ?
+               WHERE wep_id = ? AND user_id = ?""",
+            (
+                prescription["exercise_id"],
+                prescription["name"],
+                prescription["sets"],
+                prescription["reps"],
+                prescription["pct_1rm"],
+                prescription["rpe"],
+                prescription["load"],
+                prescription["rest_s"],
+                prescription["progression"],
+                prescription["cue"],
+                wep_id,
+                user_id,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return {"wep_id": wep_id, "ws_id": current["ws_id"], "replaced": current["exercise_id"], **prescription}
+
+
 def complete_session(user_id: int, ws_id: int, actual_duration_min: int | None = None) -> dict | None:
     """Mark a session done and complete its calendar item.
 
