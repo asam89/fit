@@ -210,6 +210,11 @@ CARDIO_ACTIVITY_DISCOUNT = {"very_active": 1, "extra_active": 2}
 # beginner (or anyone awaiting medical clearance) doesn't have yet.
 HIGH_SKILL_FLAG = "high_skill"
 
+# Equipment that lets a movement be progressively loaded. Bodyweight work is
+# valid programming but runs out of runway, so a user who owns a barbell should
+# not have push-ups leading their pressing day.
+LOADING_EQUIPMENT = ("barbell", "dumbbells", "machines", "bands", "full_gym")
+
 DEFAULT_CARDIO_MODALITY = "brisk walk, bike, or row"
 LOW_IMPACT_CARDIO_MODALITY = "bike, row, elliptical, or pool"
 
@@ -267,6 +272,16 @@ def variation_seed(user_id: int, mesocycle_index: int) -> int:
     return int(digest[:8], 16)
 
 
+def has_loading_equipment(equipment: list[str]) -> bool:
+    """Whether the user can add external load at all."""
+    return bool(set(equipment).intersection(LOADING_EQUIPMENT))
+
+
+def is_loadable(ex: dict) -> bool:
+    """Whether the movement can be loaded beyond bodyweight."""
+    return bool(set(ex.get("equipment") or []).intersection(LOADING_EQUIPMENT))
+
+
 def select_exercises(
     pattern: str,
     equipment: list[str],
@@ -281,7 +296,8 @@ def select_exercises(
     Candidates are sorted by id so the choice is reproducible, then offset by
     the seed: two users with identical inputs get equally valid but different
     exercises, and the same user gets fresh ones each mesocycle. Compounds fill
-    main slots first so an isolation movement never leads a session.
+    main slots first so an isolation movement never leads a session, and
+    loadable movements win when the user has something to load them with.
     """
     library = exercises if exercises is not None else load_exercise_library()
     candidates = sorted(
@@ -291,6 +307,9 @@ def select_exercises(
     if prefer_compound:
         compounds = [ex for ex in candidates if ex.get("compound")]
         candidates = compounds or candidates
+        if has_loading_equipment(equipment):
+            loadable = [ex for ex in candidates if is_loadable(ex)]
+            candidates = loadable or candidates
     if not candidates:
         return []
     return [candidates[(seed + i) % len(candidates)] for i in range(count)]

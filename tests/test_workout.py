@@ -438,6 +438,19 @@ def test_select_exercises_prefers_compounds_for_main_slots():
     assert all(ex["compound"] for ex in picks)
 
 
+def test_select_exercises_prefers_loadable_movements_when_load_is_available():
+    """A user with a barbell shouldn't get push-ups leading their pressing day."""
+    for seed in range(6):
+        picks = workout.select_exercises("horizontal_push", ["barbell", "dumbbells"], [], seed, count=2)
+        assert all(workout.is_loadable(ex) for ex in picks)
+
+
+def test_select_exercises_falls_back_to_bodyweight_without_equipment():
+    picks = workout.select_exercises("horizontal_push", ["bodyweight"], [], 1)
+    assert picks
+    assert not workout.has_loading_equipment(["bodyweight"])
+
+
 def test_select_exercises_returns_empty_when_nothing_qualifies():
     assert workout.select_exercises("squat", ["bodyweight"], ["squat"], 1) == []
 
