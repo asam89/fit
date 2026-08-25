@@ -1,0 +1,626 @@
+{
+  "version": 1,
+  "notes": "Seed exercise library for the deterministic workout engine. equipment lists the options that unlock the movement (any one is enough); flags are contraindication tags matched against the user's movement exclusions.",
+  "exercises": [
+    {
+      "id": "back_squat",
+      "name": "Back Squat",
+      "pattern": "squat",
+      "primary": ["quads", "glutes"],
+      "secondary": ["hamstrings", "core"],
+      "equipment": ["barbell"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "front_squat",
+      "name": "Front Squat",
+      "pattern": "squat",
+      "primary": ["quads"],
+      "secondary": ["glutes", "core"],
+      "equipment": ["barbell"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "goblet_squat",
+      "name": "Goblet Squat",
+      "pattern": "squat",
+      "primary": ["quads", "glutes"],
+      "secondary": ["core"],
+      "equipment": ["dumbbells"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "db_squat",
+      "name": "Dumbbell Squat",
+      "pattern": "squat",
+      "primary": ["quads", "glutes"],
+      "secondary": ["core"],
+      "equipment": ["dumbbells"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "leg_press",
+      "name": "Leg Press",
+      "pattern": "squat",
+      "primary": ["quads", "glutes"],
+      "secondary": ["hamstrings"],
+      "equipment": ["machines"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "hack_squat",
+      "name": "Hack Squat",
+      "pattern": "squat",
+      "primary": ["quads"],
+      "secondary": ["glutes"],
+      "equipment": ["machines"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "bodyweight_squat",
+      "name": "Bodyweight Squat",
+      "pattern": "squat",
+      "primary": ["quads", "glutes"],
+      "secondary": ["core"],
+      "equipment": ["bodyweight"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "banded_squat",
+      "name": "Banded Squat",
+      "pattern": "squat",
+      "primary": ["quads", "glutes"],
+      "secondary": ["core"],
+      "equipment": ["bands"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "deadlift",
+      "name": "Conventional Deadlift",
+      "pattern": "hinge",
+      "primary": ["hamstrings", "glutes"],
+      "secondary": ["back", "core"],
+      "equipment": ["barbell"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "trap_bar_deadlift",
+      "name": "Trap Bar Deadlift",
+      "pattern": "hinge",
+      "primary": ["glutes", "quads"],
+      "secondary": ["hamstrings", "back"],
+      "equipment": ["barbell"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "romanian_deadlift",
+      "name": "Romanian Deadlift",
+      "pattern": "hinge",
+      "primary": ["hamstrings", "glutes"],
+      "secondary": ["back"],
+      "equipment": ["barbell"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "db_romanian_deadlift",
+      "name": "Dumbbell Romanian Deadlift",
+      "pattern": "hinge",
+      "primary": ["hamstrings", "glutes"],
+      "secondary": ["back"],
+      "equipment": ["dumbbells"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "single_leg_rdl",
+      "name": "Single-Leg Romanian Deadlift",
+      "pattern": "hinge",
+      "primary": ["hamstrings", "glutes"],
+      "secondary": ["core"],
+      "equipment": ["dumbbells", "bodyweight"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "hip_thrust",
+      "name": "Hip Thrust",
+      "pattern": "hinge",
+      "primary": ["glutes"],
+      "secondary": ["hamstrings"],
+      "equipment": ["barbell", "dumbbells"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "glute_bridge",
+      "name": "Glute Bridge",
+      "pattern": "hinge",
+      "primary": ["glutes"],
+      "secondary": ["hamstrings", "core"],
+      "equipment": ["bodyweight"],
+      "flags": [],
+      "compound": false
+    },
+    {
+      "id": "db_swing",
+      "name": "Dumbbell Swing",
+      "pattern": "hinge",
+      "primary": ["glutes", "hamstrings"],
+      "secondary": ["back", "core"],
+      "equipment": ["dumbbells"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "back_extension",
+      "name": "Back Extension",
+      "pattern": "hinge",
+      "primary": ["glutes", "hamstrings"],
+      "secondary": ["back"],
+      "equipment": ["machines"],
+      "flags": [],
+      "compound": false
+    },
+    {
+      "id": "seated_leg_curl",
+      "name": "Seated Leg Curl",
+      "pattern": "hinge",
+      "primary": ["hamstrings"],
+      "secondary": [],
+      "equipment": ["machines"],
+      "flags": [],
+      "compound": false
+    },
+    {
+      "id": "banded_good_morning",
+      "name": "Banded Good Morning",
+      "pattern": "hinge",
+      "primary": ["hamstrings", "glutes"],
+      "secondary": ["back"],
+      "equipment": ["bands"],
+      "flags": [],
+      "compound": false
+    },
+    {
+      "id": "bench_press",
+      "name": "Barbell Bench Press",
+      "pattern": "horizontal_push",
+      "primary": ["chest"],
+      "secondary": ["triceps", "shoulders"],
+      "equipment": ["barbell"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "db_bench_press",
+      "name": "Dumbbell Bench Press",
+      "pattern": "horizontal_push",
+      "primary": ["chest"],
+      "secondary": ["triceps", "shoulders"],
+      "equipment": ["dumbbells"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "incline_db_press",
+      "name": "Incline Dumbbell Press",
+      "pattern": "horizontal_push",
+      "primary": ["chest", "shoulders"],
+      "secondary": ["triceps"],
+      "equipment": ["dumbbells"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "push_up",
+      "name": "Push-Up",
+      "pattern": "horizontal_push",
+      "primary": ["chest"],
+      "secondary": ["triceps", "core"],
+      "equipment": ["bodyweight"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "machine_chest_press",
+      "name": "Machine Chest Press",
+      "pattern": "horizontal_push",
+      "primary": ["chest"],
+      "secondary": ["triceps"],
+      "equipment": ["machines"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "band_chest_press",
+      "name": "Band Chest Press",
+      "pattern": "horizontal_push",
+      "primary": ["chest"],
+      "secondary": ["triceps"],
+      "equipment": ["bands"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "dip",
+      "name": "Dip",
+      "pattern": "horizontal_push",
+      "primary": ["chest", "triceps"],
+      "secondary": ["shoulders"],
+      "equipment": ["bodyweight"],
+      "flags": ["high_skill"],
+      "compound": true
+    },
+    {
+      "id": "overhead_press",
+      "name": "Barbell Overhead Press",
+      "pattern": "vertical_push",
+      "primary": ["shoulders"],
+      "secondary": ["triceps", "core"],
+      "equipment": ["barbell"],
+      "flags": ["overhead"],
+      "compound": true
+    },
+    {
+      "id": "db_shoulder_press",
+      "name": "Dumbbell Shoulder Press",
+      "pattern": "vertical_push",
+      "primary": ["shoulders"],
+      "secondary": ["triceps"],
+      "equipment": ["dumbbells"],
+      "flags": ["overhead"],
+      "compound": true
+    },
+    {
+      "id": "machine_shoulder_press",
+      "name": "Seated Machine Shoulder Press",
+      "pattern": "vertical_push",
+      "primary": ["shoulders"],
+      "secondary": ["triceps"],
+      "equipment": ["machines"],
+      "flags": ["overhead"],
+      "compound": true
+    },
+    {
+      "id": "pike_push_up",
+      "name": "Pike Push-Up",
+      "pattern": "vertical_push",
+      "primary": ["shoulders"],
+      "secondary": ["triceps", "core"],
+      "equipment": ["bodyweight"],
+      "flags": ["overhead", "high_skill"],
+      "compound": true
+    },
+    {
+      "id": "band_overhead_press",
+      "name": "Band Overhead Press",
+      "pattern": "vertical_push",
+      "primary": ["shoulders"],
+      "secondary": ["triceps"],
+      "equipment": ["bands"],
+      "flags": ["overhead"],
+      "compound": true
+    },
+    {
+      "id": "landmine_press",
+      "name": "Landmine Press",
+      "pattern": "vertical_push",
+      "primary": ["shoulders"],
+      "secondary": ["chest", "core"],
+      "equipment": ["barbell"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "half_kneeling_db_press",
+      "name": "Half-Kneeling Dumbbell Press",
+      "pattern": "vertical_push",
+      "primary": ["shoulders"],
+      "secondary": ["core"],
+      "equipment": ["dumbbells"],
+      "flags": ["overhead"],
+      "compound": true
+    },
+    {
+      "id": "barbell_row",
+      "name": "Barbell Row",
+      "pattern": "horizontal_pull",
+      "primary": ["back"],
+      "secondary": ["biceps", "core"],
+      "equipment": ["barbell"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "one_arm_db_row",
+      "name": "One-Arm Dumbbell Row",
+      "pattern": "horizontal_pull",
+      "primary": ["back"],
+      "secondary": ["biceps"],
+      "equipment": ["dumbbells"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "seated_cable_row",
+      "name": "Seated Cable Row",
+      "pattern": "horizontal_pull",
+      "primary": ["back"],
+      "secondary": ["biceps"],
+      "equipment": ["machines"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "chest_supported_row",
+      "name": "Chest-Supported Row",
+      "pattern": "horizontal_pull",
+      "primary": ["back"],
+      "secondary": ["biceps"],
+      "equipment": ["machines", "dumbbells"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "inverted_row",
+      "name": "Inverted Row",
+      "pattern": "horizontal_pull",
+      "primary": ["back"],
+      "secondary": ["biceps", "core"],
+      "equipment": ["bodyweight"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "band_row",
+      "name": "Band Row",
+      "pattern": "horizontal_pull",
+      "primary": ["back"],
+      "secondary": ["biceps"],
+      "equipment": ["bands"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "face_pull",
+      "name": "Face Pull",
+      "pattern": "horizontal_pull",
+      "primary": ["shoulders"],
+      "secondary": ["back"],
+      "equipment": ["machines", "bands"],
+      "flags": [],
+      "compound": false
+    },
+    {
+      "id": "pull_up",
+      "name": "Pull-Up",
+      "pattern": "vertical_pull",
+      "primary": ["lats"],
+      "secondary": ["biceps", "core"],
+      "equipment": ["bodyweight"],
+      "flags": ["overhead", "high_skill"],
+      "compound": true
+    },
+    {
+      "id": "chin_up",
+      "name": "Chin-Up",
+      "pattern": "vertical_pull",
+      "primary": ["lats", "biceps"],
+      "secondary": ["core"],
+      "equipment": ["bodyweight"],
+      "flags": ["overhead", "high_skill"],
+      "compound": true
+    },
+    {
+      "id": "lat_pulldown",
+      "name": "Lat Pulldown",
+      "pattern": "vertical_pull",
+      "primary": ["lats"],
+      "secondary": ["biceps"],
+      "equipment": ["machines"],
+      "flags": ["overhead"],
+      "compound": true
+    },
+    {
+      "id": "band_pulldown",
+      "name": "Half-Kneeling Band Pulldown",
+      "pattern": "vertical_pull",
+      "primary": ["lats"],
+      "secondary": ["biceps", "core"],
+      "equipment": ["bands"],
+      "flags": ["overhead"],
+      "compound": true
+    },
+    {
+      "id": "db_pullover",
+      "name": "Dumbbell Pullover",
+      "pattern": "vertical_pull",
+      "primary": ["lats"],
+      "secondary": ["chest", "core"],
+      "equipment": ["dumbbells"],
+      "flags": [],
+      "compound": false
+    },
+    {
+      "id": "walking_lunge",
+      "name": "Walking Lunge",
+      "pattern": "lunge",
+      "primary": ["quads", "glutes"],
+      "secondary": ["hamstrings", "core"],
+      "equipment": ["dumbbells", "bodyweight"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "reverse_lunge",
+      "name": "Reverse Lunge",
+      "pattern": "lunge",
+      "primary": ["glutes", "quads"],
+      "secondary": ["hamstrings"],
+      "equipment": ["dumbbells", "bodyweight"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "bulgarian_split_squat",
+      "name": "Bulgarian Split Squat",
+      "pattern": "lunge",
+      "primary": ["quads", "glutes"],
+      "secondary": ["hamstrings", "core"],
+      "equipment": ["dumbbells", "bodyweight"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "step_up",
+      "name": "Step-Up",
+      "pattern": "lunge",
+      "primary": ["quads", "glutes"],
+      "secondary": ["hamstrings"],
+      "equipment": ["dumbbells", "bodyweight"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "split_squat",
+      "name": "Split Squat",
+      "pattern": "lunge",
+      "primary": ["quads", "glutes"],
+      "secondary": ["core"],
+      "equipment": ["bodyweight", "dumbbells"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "farmers_carry",
+      "name": "Farmer's Carry",
+      "pattern": "carry",
+      "primary": ["core"],
+      "secondary": ["back", "shoulders"],
+      "equipment": ["dumbbells"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "suitcase_carry",
+      "name": "Suitcase Carry",
+      "pattern": "carry",
+      "primary": ["core"],
+      "secondary": ["back"],
+      "equipment": ["dumbbells"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "front_rack_carry",
+      "name": "Front Rack Carry",
+      "pattern": "carry",
+      "primary": ["core"],
+      "secondary": ["shoulders", "back"],
+      "equipment": ["dumbbells", "barbell"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "bear_crawl",
+      "name": "Bear Crawl",
+      "pattern": "carry",
+      "primary": ["core"],
+      "secondary": ["shoulders", "quads"],
+      "equipment": ["bodyweight"],
+      "flags": [],
+      "compound": true
+    },
+    {
+      "id": "plank",
+      "name": "Plank",
+      "pattern": "core",
+      "primary": ["core"],
+      "secondary": ["shoulders"],
+      "equipment": ["bodyweight"],
+      "flags": [],
+      "compound": false
+    },
+    {
+      "id": "side_plank",
+      "name": "Side Plank",
+      "pattern": "core",
+      "primary": ["core"],
+      "secondary": ["glutes"],
+      "equipment": ["bodyweight"],
+      "flags": [],
+      "compound": false
+    },
+    {
+      "id": "dead_bug",
+      "name": "Dead Bug",
+      "pattern": "core",
+      "primary": ["core"],
+      "secondary": [],
+      "equipment": ["bodyweight"],
+      "flags": [],
+      "compound": false
+    },
+    {
+      "id": "hollow_hold",
+      "name": "Hollow Hold",
+      "pattern": "core",
+      "primary": ["core"],
+      "secondary": [],
+      "equipment": ["bodyweight"],
+      "flags": [],
+      "compound": false
+    },
+    {
+      "id": "hanging_knee_raise",
+      "name": "Hanging Knee Raise",
+      "pattern": "core",
+      "primary": ["core"],
+      "secondary": ["lats"],
+      "equipment": ["bodyweight"],
+      "flags": ["overhead", "high_skill"],
+      "compound": false
+    },
+    {
+      "id": "cable_crunch",
+      "name": "Cable Crunch",
+      "pattern": "core",
+      "primary": ["core"],
+      "secondary": [],
+      "equipment": ["machines"],
+      "flags": [],
+      "compound": false
+    },
+    {
+      "id": "pallof_press",
+      "name": "Pallof Press",
+      "pattern": "core",
+      "primary": ["core"],
+      "secondary": ["shoulders"],
+      "equipment": ["bands", "machines"],
+      "flags": [],
+      "compound": false
+    },
+    {
+      "id": "calf_raise",
+      "name": "Standing Calf Raise",
+      "pattern": "calf",
+      "primary": ["calves"],
+      "secondary": [],
+      "equipment": ["bodyweight", "dumbbells", "machines"],
+      "flags": [],
+      "compound": false
+    }
+  ]
+}
