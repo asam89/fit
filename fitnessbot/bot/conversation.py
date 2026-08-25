@@ -12,6 +12,7 @@ from fitnessbot.ai.food_parser import parse_meal, log_meal_from_parsed
 from fitnessbot.ai.prompts import (
     compose_prompt, TASK_COACHING_REPLY, TASK_QUERY_RESPONSE,
     TASK_GOAL_FIT_CHECK, TASK_WORKOUT_EXPLAINER, TASK_TRAINING_GUIDANCE,
+    TASK_EVIDENCE_RESPONSE,
 )
 from fitnessbot.event_coaching import (
     is_event_goal_message, is_readiness_check, parse_event_date,
@@ -103,6 +104,24 @@ _TRAINING_ADVICE_PAT = re.compile(
     r"|(?:am\s+i\s+training\s+(?:right|correctly|enough|hard\s+enough))",
     re.I,
 )
+# Evidence lookup: user wants the answer grounded in peer-reviewed research
+_EVIDENCE_PAT = re.compile(
+    r"\b(?:research|studies|study|evidence|pubmed|meta.?analys[ie]s|clinical trials?|peer.?reviewed|scientific)\b"
+    r"|(?:what\s+does\s+(?:the\s+)?science\s+say)"
+    r"|(?:is\s+it\s+(?:scientifically\s+)?(?:proven|backed|supported))",
+    re.I,
+)
+_EVIDENCE_LEADIN_PATS = [
+    r"what\s+does\s+(?:the\s+)?(?:research|science|evidence|literature|studies|data)\s+say\s+(?:about|on|regarding)",
+    r"what(?:'s| is| are)\s+the\s+(?:research|science|evidence|literature)\s+(?:on|for|behind|about|regarding)",
+    r"is\s+there\s+(?:any\s+)?(?:research|evidence|studies|science)\s+(?:on|for|about|that|to\s+support|behind|regarding)",
+    r"are\s+there\s+(?:any\s+)?studies\s+(?:on|about|for|regarding)",
+    r"(?:any|show\s+me|find|got\s+any)\s+(?:the\s+)?(?:research|studies|evidence)\s+(?:on|about|for|regarding)",
+    r"what\s+do\s+(?:the\s+)?studies\s+say\s+(?:about|on)",
+    r"does\s+(?:the\s+)?(?:research|science|evidence)\s+(?:support|back|show)",
+    r"(?:research|studies|evidence|science|literature)\s+(?:on|about|for|behind|regarding)",
+    r"is\s+(?:it|there)\s+(?:scientifically\s+)?(?:proven|backed|supported)\s+(?:that|to)?",
+]
 
 
 def _fast_path_intents(text: str, pending: dict | None) -> list[dict] | None:
@@ -161,6 +180,11 @@ def _fast_path_intents(text: str, pending: dict | None) -> list[dict] | None:
     # Readiness check fast path
     if is_readiness_check(stripped):
         return [{"type": "readiness_check", "event_hint": stripped, "confidence": 0.95}]
+
+    # Evidence lookup fast path — route as a query so it reaches the
+    # evidence branch in _generate_coaching_reply
+    if _EVIDENCE_PAT.search(stripped):
+        return [{"type": "query", "question": stripped, "confidence": 0.9}]
 
     # Training guidance fast path — route as a query so it reaches the
     # training-advice branch in _generate_coaching_reply
@@ -1278,6 +1302,81 @@ def _is_training_advice_query(text: str) -> bool:
     return bool(_TRAINING_ADVICE_PAT.search(text))
 
 
+def _is_evidence_query(text: str) -> bool:
+    """Detect if the user wants an answer grounded in peer-reviewed research."""
+    return bool(_EVIDENCE_PAT.search(text))
+
+
+def _extract_evidence_topic(question: str) -> str:
+    """Strip evidence-request lead-ins to get the searchable topic."""
+    t = re.sub(r"[?.!]+\s*$", "", question.strip())
+    for pat in _EVIDENCE_LEADIN_PATS:
+        stripped = re.sub(pat, "", t, flags=re.I).strip(" ?.!,:")
+        if stripped and stripped != t:
+            return stripped
+    return t
+
+
+def _format_evidence_sources(articles: list[dict]) -> str:
+    """Deterministic, non-hallucinated citation list with PubMed links."""
+    lines = ["\U0001F4DA Sources (PubMed):"]
+    for i, a in enumerate(articles, 1):
+        yr = f" ({a['year']})" if a.get("year") else ""
+        journal = f" — {a['journal']}" if a.get("journal") else ""
+        title = a["title"][:120]
+        lines.append(f"[{i}] {title}{journal}{yr}\n{a['url']}")
+    return "\n".join(lines)
+
+
+def _evidence_fallback(topic: str, articles: list[dict]) -> str:
+    """Deterministic answer when the LLM is unavailable — list what was found."""
+    intro = (f"Here's what the research turned up on {topic}:" if topic
+             else "Here's what the research turned up:")
+    return intro
+
+
+def _generate_evidence_reply(user_id: int, question: str, tone_pref: str,
+                             perf_signal: str) -> tuple[str, dict]:
+    """Answer a question grounded in PubMed studies, with cited sources appended."""
+    from fitnessbot.inference.factory import get_inference
+    from fitnessbot import pubmed
+
+    topic = _extract_evidence_topic(question)
+    articles = pubmed.search_evidence(topic, max_results=4)
+    if not articles:
+        return (
+            f"I couldn't pull up studies on that right now. Try naming the specific topic "
+            f"(e.g. \"research on {topic or 'creatine for strength'}\") and I'll search PubMed again.",
+            {"input_tokens": 0, "output_tokens": 0},
+        )
+
+    ctx_lines = [
+        f'User question: "{question}"', "",
+        "PEER-REVIEWED STUDIES FROM PUBMED (summarize these; cite inline by number):",
+    ]
+    for i, a in enumerate(articles, 1):
+        abstract = a["abstract"][:1200] if a.get("abstract") else "(no abstract available)"
+        ctx_lines.append(f"\n[{i}] {a['title']} ({a.get('journal', '')} {a.get('year', '')})\n{abstract}")
+    prompt = "\n".join(ctx_lines)
+    system = compose_prompt(TASK_EVIDENCE_RESPONSE, tone_pref=tone_pref, performance_signal=perf_signal)
+
+    tokens = {"input_tokens": 0, "output_tokens": 0}
+    try:
+        infer = get_inference(user_id)
+        result = infer(system=system, messages=[{"role": "user", "content": prompt}], max_tokens=600)
+        text = result["text"].strip()
+        from fitnessbot.event_coaching import _strip_tone_labels
+        text = _strip_tone_labels(text)
+        tokens = {"input_tokens": result.get("input_tokens", 0), "output_tokens": result.get("output_tokens", 0)}
+    except InferenceError:
+        text = _evidence_fallback(topic, articles)
+    except Exception as e:
+        logger.error("Evidence reply failed: %s", e)
+        text = _evidence_fallback(topic, articles)
+
+    return text + "\n\n" + _format_evidence_sources(articles), tokens
+
+
 def _goals_context_lines(user_id: int) -> list[str]:
     """Build goal description lines from both weight/body goals and event goals."""
     lines = []
@@ -1419,6 +1518,11 @@ def _generate_coaching_reply(user_id: int, raw_text: str, act_results: list[dict
         question = query_results[0].get("question", raw_text)
     else:
         question = raw_text
+
+    # Evidence-grounded answers take precedence when the user explicitly asks
+    # for research/studies — this path fetches PubMed and appends its own sources.
+    if _is_evidence_query(question):
+        return _generate_evidence_reply(user_id, question, tone_pref, perf_signal)
 
     is_training_advice = False
     if _is_training_advice_query(question):
