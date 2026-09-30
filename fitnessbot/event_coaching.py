@@ -3,11 +3,12 @@
 import json
 import logging
 import re
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 
 from fitnessbot import db
 from fitnessbot.ai.prompts import compose_prompt
 from fitnessbot.inference.base import InferenceError
+from fitnessbot.tz import days_until, user_now
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +43,9 @@ _SPORT_KEYWORDS = {
 }
 
 
-def parse_event_date(text: str) -> str | None:
+def parse_event_date(text: str, user_id: int | None = None) -> str | None:
     """Extract event date from text, return ISO format or None."""
-    now = datetime.now(timezone.utc)
+    now = user_now(user_id)
 
     # Try relative ("in 25 days", "30 days away")
     m = _RELATIVE_DATE_PAT.search(text)
@@ -184,9 +185,7 @@ def build_prep_plan(user_id: int, title: str, event_date: str, sport_type: str |
     """Generate a prep plan via LLM. Returns structured plan dict."""
     from fitnessbot.inference.factory import get_inference
 
-    now = datetime.now(timezone.utc)
-    target = datetime.strptime(event_date, "%Y-%m-%d")
-    days_out = (target.date() - now.date()).days
+    days_out = days_until(event_date, user_id)
 
     user = db.get_user_by_id(user_id)
     profile_info = ""
@@ -205,7 +204,8 @@ def build_prep_plan(user_id: int, title: str, event_date: str, sport_type: str |
             f"{w.get('type', 'workout')} {w.get('duration_min', '?')}min" for w in workout_hist[-5:]
         )
 
-    prompt = f"""Event: {title}
+    prompt = f"""Today: {user_now(user_id).strftime('%A, %Y-%m-%d')}
+Event: {title}
 Date: {event_date} ({days_out} days from now)
 Sport/Type: {sport_type or 'general fitness'}
 User description: {description}
@@ -324,9 +324,7 @@ def build_motivation_checkin(event_goal: dict, user_id: int) -> str:
     from fitnessbot.inference.factory import get_inference
     from fitnessbot.tz import utc_offset_hours as _utc_off
 
-    now = datetime.now(timezone.utc)
-    event_date = datetime.strptime(event_goal["event_date"], "%Y-%m-%d")
-    days_remaining = (event_date.date() - now.date()).days
+    days_remaining = days_until(event_goal["event_date"], user_id)
 
     workout_hist = db.get_workout_history(user_id, 7)
     recent_activity = f"{len(workout_hist)} workouts in the last 7 days" if workout_hist else "No workouts logged this week"
@@ -377,7 +375,7 @@ Generate a check-in message. Do NOT include any tone labels or headers — just 
     # Compose via shared persona
     user = db.get_user_by_id(user_id)
     tone_pref = (user.get("feedback_tone_preference") or "neutral") if user else "neutral"
-    system = compose_prompt(_TASK_MOTIVATION, tone_pref=tone_pref)
+    system = compose_prompt(_TASK_MOTIVATION, tone_pref=tone_pref, now=user_now(user_id))
 
     try:
         infer = get_inference(user_id)
@@ -415,9 +413,7 @@ def build_readiness_assessment(user_id: int, event_goal: dict) -> str:
     """Assess readiness for an event based on actual logged data."""
     from fitnessbot.inference.factory import get_inference
 
-    now = datetime.now(timezone.utc)
-    event_date = datetime.strptime(event_goal["event_date"], "%Y-%m-%d")
-    days_remaining = (event_date.date() - now.date()).days
+    days_remaining = days_until(event_goal["event_date"], user_id)
 
     from fitnessbot.tz import utc_offset_hours as _utc_off
     workout_hist = db.get_workout_history(user_id, 30)
@@ -455,7 +451,7 @@ def build_readiness_assessment(user_id: int, event_goal: dict) -> str:
     # Compose via shared persona
     user = db.get_user_by_id(user_id)
     tone_pref = (user.get("feedback_tone_preference") or "neutral") if user else "neutral"
-    system = compose_prompt(_TASK_READINESS, tone_pref=tone_pref)
+    system = compose_prompt(_TASK_READINESS, tone_pref=tone_pref, now=user_now(user_id))
 
     try:
         infer = get_inference(user_id)

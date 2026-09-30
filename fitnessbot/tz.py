@@ -1,5 +1,6 @@
 """Timezone helpers — single source of truth for user-local date/time."""
 
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -15,11 +16,18 @@ def _tz(tz_str: str | None) -> ZoneInfo:
         return ZoneInfo(DEFAULT_TZ)
 
 
+def _user_tz_str(user_id: int) -> str:
+    try:
+        user = db.get_user_by_id(user_id)
+    except sqlite3.Error:
+        return DEFAULT_TZ
+    return (user.get("timezone") or DEFAULT_TZ) if user else DEFAULT_TZ
+
+
 def user_now(user_id: int | None = None, *, tz_str: str | None = None) -> datetime:
     """Return the current datetime in the user's timezone."""
     if tz_str is None and user_id is not None:
-        user = db.get_user_by_id(user_id)
-        tz_str = user.get("timezone", DEFAULT_TZ) if user else DEFAULT_TZ
+        tz_str = _user_tz_str(user_id)
     return datetime.now(timezone.utc).astimezone(_tz(tz_str))
 
 
@@ -36,6 +44,12 @@ def user_date_fmt(user_id: int | None = None, *, tz_str: str | None = None, fmt:
 def user_hour(user_id: int | None = None, *, tz_str: str | None = None) -> int:
     """Return the current hour (0-23) in the user's timezone."""
     return user_now(user_id, tz_str=tz_str).hour
+
+
+def days_until(date_str: str, user_id: int | None = None, *, tz_str: str | None = None) -> int:
+    """Whole days from the user's local today to ``date_str`` (YYYY-MM-DD); negative if past."""
+    target = datetime.strptime(date_str, "%Y-%m-%d").date()
+    return (target - user_now(user_id, tz_str=tz_str).date()).days
 
 
 def utc_offset_hours(user_id: int | None = None, *, tz_str: str | None = None) -> float:

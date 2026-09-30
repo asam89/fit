@@ -2762,11 +2762,14 @@ def insert_event_goal(
 
 
 def get_active_event_goals(user_id: int) -> list[dict]:
+    """Active event goals that haven't happened yet (event_date >= user's local today)."""
+    from fitnessbot.tz import user_today as _user_today_tz
+    local_today = _user_today_tz(user_id)
     conn = get_connection()
     try:
         rows = conn.execute(
-            "SELECT * FROM event_goals WHERE user_id = ? AND status = 'active' ORDER BY event_date ASC",
-            (user_id,),
+            "SELECT * FROM event_goals WHERE user_id = ? AND status = 'active' AND event_date >= ? ORDER BY event_date ASC",
+            (user_id, local_today),
         ).fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -2808,7 +2811,6 @@ def get_due_event_checkins(max_per_day: int = 3, min_interval_hours: int = 4) ->
             JOIN users u ON eg.user_id = u.user_id
             JOIN telegram_connections tc ON eg.user_id = tc.user_id AND tc.is_active = 1
             WHERE eg.status = 'active'
-            AND eg.event_date >= date('now')
         """).fetchall()
         from fitnessbot.tz import user_today as _user_today_tz, day_utc_range as _day_utc_range
         from datetime import datetime as _dt, timezone as _tz
@@ -2818,6 +2820,8 @@ def get_due_event_checkins(max_per_day: int = 3, min_interval_hours: int = 4) ->
             row = dict(r)
             uid = row["user_id"]
             local_today = _user_today_tz(uid)
+            if row["event_date"] < local_today:
+                continue
             last = row.get("last_checkin_at")
 
             if last is None:

@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 
 from fitnessbot import db
 from fitnessbot.metrics import get_weight_summary
-from fitnessbot.tz import user_today, user_date_fmt, day_utc_range, utc_offset_hours as _utc_off
+from fitnessbot.tz import user_now, user_today, user_date_fmt, day_utc_range, utc_offset_hours as _utc_off
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +190,7 @@ def _get_user_age(user: dict) -> int | None:
         return None
     try:
         bd = datetime.strptime(birthdate, "%Y-%m-%d")
-        today = datetime.now(timezone.utc)
+        today = user_now(user.get("user_id"), tz_str=user.get("timezone"))
         return today.year - bd.year - ((today.month, today.day) < (bd.month, bd.day))
     except (ValueError, TypeError):
         return None
@@ -536,7 +536,7 @@ def build_month_summary(user_id: int) -> dict:
     still in progress.  It is shown separately.
     """
     from fitnessbot.tz import user_today as _user_today
-    now = datetime.now(timezone.utc)
+    now = user_now(user_id)
     month_start = now.strftime("%Y-%m-01")
     days_in_month = now.day
     today_str = _user_today(user_id)
