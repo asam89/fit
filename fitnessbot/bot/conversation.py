@@ -5,7 +5,6 @@ import logging
 import random
 import re
 import time
-from datetime import datetime, timezone
 
 from fitnessbot import db
 from fitnessbot.ai.food_parser import parse_meal, log_meal_from_parsed
@@ -21,7 +20,7 @@ from fitnessbot.event_coaching import (
 )
 from fitnessbot.metrics import log_weight, get_weight_summary, build_weight_telegram_summary
 from fitnessbot.inference.base import InferenceError
-from fitnessbot.tz import user_today, user_now
+from fitnessbot.tz import days_until, user_today, user_now
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +225,7 @@ def _nlu_via_llm(text: str, user_id: int, pending: dict | None) -> tuple[list[di
     except Exception:
         pass
 
+    context_parts.append(f"TODAY (user's local date): {user_now(user_id).strftime('%A, %Y-%m-%d')}")
     context_parts.append(f"Message: {text}")
 
     try:
@@ -508,9 +508,9 @@ def _act_event_goal(intent: dict, user_id: int) -> dict:
     date_text = intent.get("date_text", title_raw)
     description = intent.get("description", title_raw)
 
-    event_date = parse_event_date(date_text)
+    event_date = parse_event_date(date_text, user_id)
     if not event_date:
-        event_date = parse_event_date(title_raw)
+        event_date = parse_event_date(title_raw, user_id)
     if not event_date:
         return {"action": "event_goal_no_date", "note": "Could not determine event date"}
 
@@ -523,9 +523,7 @@ def _act_event_goal(intent: dict, user_id: int) -> dict:
     if not clean_title:
         clean_title = title_raw[:80]
 
-    now = datetime.now(timezone.utc)
-    target = datetime.strptime(event_date, "%Y-%m-%d")
-    days_out = (target.date() - now.date()).days
+    days_out = days_until(event_date, user_id)
 
     plan_data = build_prep_plan(user_id, clean_title, event_date, sport_type, description)
 
@@ -1358,7 +1356,7 @@ def _generate_evidence_reply(user_id: int, question: str, tone_pref: str,
         abstract = a["abstract"][:1200] if a.get("abstract") else "(no abstract available)"
         ctx_lines.append(f"\n[{i}] {a['title']} ({a.get('journal', '')} {a.get('year', '')})\n{abstract}")
     prompt = "\n".join(ctx_lines)
-    system = compose_prompt(TASK_EVIDENCE_RESPONSE, tone_pref=tone_pref, performance_signal=perf_signal)
+    system = compose_prompt(TASK_EVIDENCE_RESPONSE, tone_pref=tone_pref, performance_signal=perf_signal, now=user_now(user_id))
 
     tokens = {"input_tokens": 0, "output_tokens": 0}
     try:
@@ -1399,9 +1397,7 @@ def _goals_context_lines(user_id: int) -> list[str]:
         if eg.get("sport_type"):
             detail += f" ({eg['sport_type']})"
         if eg.get("event_date"):
-            detail += f" on {eg['event_date']}"
-        if eg.get("days_out") is not None:
-            detail += f" — {eg['days_out']} days out"
+            detail += f" on {eg['event_date']} — {days_until(eg['event_date'], user_id)} days out"
         if eg.get("description"):
             detail += f": {eg['description']}"
         lines.append(detail)
@@ -1528,31 +1524,31 @@ def _generate_coaching_reply(user_id: int, raw_text: str, act_results: list[dict
     if _is_training_advice_query(question):
         is_training_advice = True
         context = _build_training_guidance_context(user_id, question)
-        system = compose_prompt(TASK_TRAINING_GUIDANCE, tone_pref=tone_pref, performance_signal=perf_signal)
+        system = compose_prompt(TASK_TRAINING_GUIDANCE, tone_pref=tone_pref, performance_signal=perf_signal, now=user_now(user_id))
         prompt = context
         fallback_fn = lambda: ("Here's the short version: train close to failure on your main lifts "
                                "(last 1-2 reps genuinely hard), hit each muscle group ~2x/week, eat enough protein, "
                                "and sleep 7-9h so the muscle rebuilds. Tell me your goal and I'll get specific.")
     elif _is_goal_fit_query(question):
         context = _build_goal_fit_context(user_id, question)
-        system = compose_prompt(TASK_GOAL_FIT_CHECK, tone_pref=tone_pref, performance_signal=perf_signal)
+        system = compose_prompt(TASK_GOAL_FIT_CHECK, tone_pref=tone_pref, performance_signal=perf_signal, now=user_now(user_id))
         prompt = context
         fallback_fn = lambda: "I can help evaluate that — try telling me which specific workout or activity you're asking about, and I'll check it against your goals."
     elif _is_workout_explainer_query(question):
         cat_match = _WORKOUT_CATEGORY_PAT.search(question)
         category = cat_match.group(1) if cat_match else "general"
-        system = compose_prompt(TASK_WORKOUT_EXPLAINER, tone_pref=tone_pref, performance_signal=perf_signal)
+        system = compose_prompt(TASK_WORKOUT_EXPLAINER, tone_pref=tone_pref, performance_signal=perf_signal, now=user_now(user_id))
         prompt = f"User asked: \"{question}\"\nCategory: {category}"
         fallback_fn = lambda: "I can explain workouts for different goals. Try asking about: moving better, strength, mobility, hip mobility, or core strength."
     elif query_results:
         qr = query_results[0]
         digest = _build_query_context(qr)
-        system = compose_prompt(TASK_QUERY_RESPONSE, tone_pref=tone_pref, performance_signal=perf_signal)
+        system = compose_prompt(TASK_QUERY_RESPONSE, tone_pref=tone_pref, performance_signal=perf_signal, now=user_now(user_id))
         prompt = f"User asked: \"{qr.get('question', raw_text)}\"\n\n{digest}"
         fallback_fn = lambda: _deterministic_query_response(qr)
     else:
         digest = _build_context_digest(user_id, act_results)
-        system = compose_prompt(TASK_COACHING_REPLY, tone_pref=tone_pref, performance_signal=perf_signal)
+        system = compose_prompt(TASK_COACHING_REPLY, tone_pref=tone_pref, performance_signal=perf_signal, now=user_now(user_id))
         prompt = f"User said: \"{raw_text}\"\n\n{digest}"
         fallback_fn = lambda: _deterministic_confirmation(act_results, user_id)
 

@@ -1,5 +1,7 @@
 """All Claude prompt templates — versioned and testable."""
 
+from datetime import datetime
+
 # ---------------------------------------------------------------------------
 # Canonical coach persona — the single source of voice, attitude, and safety.
 # Every LLM generation path that produces user-facing language should be
@@ -33,8 +35,17 @@ Boundaries — never cross these:
 - When comparing actuals to targets: "under target" (<95%), "met target" (within 5%), "exceeded target" (>105%). Never say "close to" when target was met or exceeded."""
 
 
+def clock_context(now: datetime) -> str:
+    """Tell the model the user's current local date/time; it has no clock of its own."""
+    return (
+        f"Current date and time for the user: {now.strftime('%A, %B %d, %Y, %I:%M %p %Z')}. "
+        "Use this for all date math (days until an event, \"yesterday\", \"this week\"). "
+        "Any event or goal dated before today has already happened — never describe it as upcoming."
+    )
+
+
 def compose_prompt(task_instructions: str, *, tone_pref: str = "neutral",
-                   performance_signal: str = "") -> str:
+                   performance_signal: str = "", now: datetime | None = None) -> str:
     """Compose a system prompt: persona + tone modifiers + task instructions.
 
     Parameters
@@ -45,8 +56,12 @@ def compose_prompt(task_instructions: str, *, tone_pref: str = "neutral",
         User's feedback_tone_preference: "supportive", "neutral", or "blunt".
     performance_signal : str
         Short description of recent performance context for tone adaptation.
+    now : datetime | None
+        The user's current local time (``tz.user_now``), added as clock context.
     """
     parts = [COACH_PERSONA]
+    if now is not None:
+        parts.append("\n" + clock_context(now))
 
     # Tone preference modifier
     if tone_pref == "blunt":

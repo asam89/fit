@@ -6,6 +6,7 @@ import time
 
 from fitnessbot import db
 from fitnessbot.inference.base import InferenceError
+from fitnessbot.tz import user_now
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,7 @@ def build_plan(raw_text: str, user_id: int | None = None) -> dict:
     start = time.time()
     result = infer(
         system=PLAN_SYSTEM,
-        messages=[{"role": "user", "content": raw_text}],
+        messages=[{"role": "user", "content": f"Today's date: {user_now(user_id).strftime('%A, %B %d, %Y')}\n\n{raw_text}"}],
         max_tokens=1000,
         json_mode=True,
     )

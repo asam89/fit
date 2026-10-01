@@ -1,7 +1,7 @@
 """Scheduled Telegram briefings: morning, midday, evening + nudges + rollups."""
 
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 
 from fitnessbot.config import Config
 from fitnessbot import db
@@ -9,7 +9,7 @@ from fitnessbot.ai.prompts import compose_prompt
 from fitnessbot.metrics import get_weight_summary, build_weight_analysis
 from fitnessbot.nutrition import get_nutrition_targets
 from fitnessbot.web.connections import decrypt_token
-from fitnessbot.tz import user_today
+from fitnessbot.tz import user_now, user_today
 
 logger = logging.getLogger(__name__)
 
@@ -277,7 +277,7 @@ def build_evening_wrap(user_id: int) -> str:
 
 
 def build_weekly_rollup(user_id: int) -> str:
-    today = datetime.now(timezone.utc)
+    today = user_now(user_id)
     week_start = (today - timedelta(days=7)).strftime("%Y-%m-%d")
     week_end = today.strftime("%Y-%m-%d")
 
@@ -369,8 +369,7 @@ async def run_evening_wrap():
         if db.get_briefings_sent_today(uid, "evening") > 0:
             continue
         text = build_evening_wrap(uid)
-        now = datetime.now(timezone.utc)
-        if now.weekday() == 6:
+        if user_now(uid).weekday() == 6:
             text += "\n\n" + build_weekly_rollup(uid)
         sent = await _send_telegram(uid, text)
         if sent:
