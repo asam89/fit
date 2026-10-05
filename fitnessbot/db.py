@@ -2,12 +2,12 @@
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 24
 
 SCHEMA_SQL = """
 -- users
@@ -570,6 +570,22 @@ WORKOUT_SCHEMA_SQL = (
 )
 
 SCHEMA_SQL += ";\n".join(WORKOUT_SCHEMA_SQL) + ";\n"
+
+# Full-text conversation history (user messages and every bot message,
+# including scheduled ones) fed back to the model as recent context.
+CHAT_TURNS_SCHEMA_SQL = (
+    """CREATE TABLE IF NOT EXISTS chat_turns (
+        turn_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+        channel TEXT NOT NULL DEFAULT 'telegram',
+        kind TEXT NOT NULL DEFAULT 'conversation',
+        text TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))""",
+    "CREATE INDEX IF NOT EXISTS idx_chat_turns_user_time ON chat_turns(user_id, created_at)",
+)
+
+SCHEMA_SQL += ";\n".join(CHAT_TURNS_SCHEMA_SQL) + ";\n"
 
 
 def get_db_path() -> str:
@@ -1226,6 +1242,13 @@ def run_migrations() -> None:
                 except sqlite3.OperationalError:
                     pass
             conn.execute("INSERT INTO schema_version (version) VALUES (23)")
+            conn.commit()
+            current = 23
+
+        if current < 24:
+            for sql in CHAT_TURNS_SCHEMA_SQL:
+                conn.execute(sql)
+            conn.execute("INSERT INTO schema_version (version) VALUES (24)")
             conn.commit()
 
     except sqlite3.OperationalError:
@@ -2401,6 +2424,60 @@ def insert_message_log(
         )
         conn.commit()
         return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+# --- chat_turns helpers ---
+
+CHAT_RETENTION_DAYS = 30
+
+
+def insert_chat_turn(
+    user_id: int,
+    role: str,
+    text: str,
+    *,
+    channel: str = "telegram",
+    kind: str = "conversation",
+) -> int:
+    """Append one message to the user's conversation and prune turns past retention."""
+    conn = get_connection()
+    try:
+        cursor = conn.execute(
+            "INSERT INTO chat_turns (user_id, role, channel, kind, text, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, role, channel, kind, text, utcnow()),
+        )
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=CHAT_RETENTION_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        conn.execute("DELETE FROM chat_turns WHERE user_id = ? AND created_at < ?", (user_id, cutoff))
+        conn.commit()
+        return cursor.lastrowid
+    finally:
+        conn.close()
+
+
+def get_recent_chat_turns(user_id: int, *, limit: int = 10, since_hours: int = 12) -> list[dict]:
+    """Most recent turns within ``since_hours``, oldest first."""
+    since = (datetime.now(timezone.utc) - timedelta(hours=since_hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """SELECT role, channel, kind, text, created_at FROM chat_turns
+               WHERE user_id = ? AND created_at >= ?
+               ORDER BY turn_id DESC LIMIT ?""",
+            (user_id, since, limit),
+        ).fetchall()
+        return [dict(r) for r in reversed(rows)]
+    finally:
+        conn.close()
+
+
+def clear_chat_turns(user_id: int) -> int:
+    conn = get_connection()
+    try:
+        cursor = conn.execute("DELETE FROM chat_turns WHERE user_id = ?", (user_id,))
+        conn.commit()
+        return cursor.rowcount
     finally:
         conn.close()
 

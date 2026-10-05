@@ -100,6 +100,7 @@ def register_handlers(app: Application, user_id: int) -> None:
             "/weight - Weight trend\n"
             "/undo - Remove last meal\n"
             "/plan - Training plan\n"
+            "/reset - Clear conversation memory\n"
             "/sync - Import wearable/health data\n"
             "/invite - Generate invite link\n"
             "/dashboard - Open web dashboard"
@@ -143,6 +144,12 @@ def register_handlers(app: Application, user_id: int) -> None:
         await update.message.reply_text(
             "\n".join(lines),
             reply_markup=InlineKeyboardMarkup(buttons),
+        )
+
+    async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        db.clear_chat_turns(user_id)
+        await update.message.reply_text(
+            "Conversation memory cleared — I'll start fresh. Your logged meals, workouts and goals are unchanged."
         )
 
     async def cmd_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -342,6 +349,7 @@ def register_handlers(app: Application, user_id: int) -> None:
             f"sleep, weight, workouts, etc.), summarize what was imported, and log any "
             f"weight or exercise data. Here is the data:\n\n{raw_payload[:4000]}",
             channel="text",
+            remember=False,
         )
         await update.message.reply_text(reply)
 
@@ -528,6 +536,7 @@ def register_handlers(app: Application, user_id: int) -> None:
     app.add_handler(CommandHandler("invite", cmd_invite))
     app.add_handler(CommandHandler("sync", cmd_sync))
     app.add_handler(CommandHandler("tone", cmd_tone))
+    app.add_handler(CommandHandler("reset", cmd_reset))
     app.add_handler(CallbackQueryHandler(handle_workout_day_callback, pattern=r"^wkday:"))
     app.add_handler(CallbackQueryHandler(handle_plan_callback, pattern=r"^plan_done:"))
     app.add_handler(CallbackQueryHandler(handle_meal_type_callback, pattern=r"^meal_type:"))

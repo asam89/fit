@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from fitnessbot.config import Config
 from fitnessbot import db
 from fitnessbot.ai.prompts import compose_prompt
+from fitnessbot.bot.conversation import remember_turn
 from fitnessbot.metrics import get_weight_summary, build_weight_analysis
 from fitnessbot.nutrition import get_nutrition_targets
 from fitnessbot.web.connections import decrypt_token
@@ -37,7 +38,8 @@ def _get_user_targets(user_id: int) -> dict:
     return get_nutrition_targets(user_id)
 
 
-async def _send_telegram(user_id: int, text: str) -> bool:
+async def _send_telegram(user_id: int, text: str, kind: str = "scheduled") -> bool:
+    """Send a bot-initiated message; on success it joins the conversation memory as ``kind``."""
     conn = db.get_telegram_connection(user_id)
     if not conn:
         return False
@@ -49,10 +51,13 @@ async def _send_telegram(user_id: int, text: str) -> bool:
                 f"https://api.telegram.org/bot{token}/sendMessage",
                 json={"chat_id": conn["chat_id"], "text": text, "parse_mode": "Markdown"},
             )
-            return resp.status_code == 200
+        if resp.status_code != 200:
+            return False
     except Exception as e:
         logger.error("Failed to send briefing to user %s: %s", user_id, e)
         return False
+    remember_turn(user_id, "assistant", text, kind=kind)
+    return True
 
 
 def _get_yesterday_performance(user_id: int) -> dict | None:
@@ -341,7 +346,7 @@ async def run_morning_brief():
         if db.get_briefings_sent_today(uid, "morning") > 0:
             continue
         text = build_morning_brief(uid)
-        sent = await _send_telegram(uid, text)
+        sent = await _send_telegram(uid, text, kind="morning")
         if sent:
             db.insert_briefing_log(uid, "morning", text[:200])
 
@@ -355,7 +360,7 @@ async def run_midday_check():
         if db.get_briefings_sent_today(uid, "midday") > 0:
             continue
         text = build_midday_check(uid)
-        sent = await _send_telegram(uid, text)
+        sent = await _send_telegram(uid, text, kind="midday")
         if sent:
             db.insert_briefing_log(uid, "midday", text[:200])
 
@@ -371,6 +376,6 @@ async def run_evening_wrap():
         text = build_evening_wrap(uid)
         if user_now(uid).weekday() == 6:
             text += "\n\n" + build_weekly_rollup(uid)
-        sent = await _send_telegram(uid, text)
+        sent = await _send_telegram(uid, text, kind="evening")
         if sent:
             db.insert_briefing_log(uid, "evening", text[:200], had_nudge=True)

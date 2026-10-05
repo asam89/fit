@@ -5,13 +5,14 @@ import logging
 import random
 import re
 import time
+from datetime import datetime
 
 from fitnessbot import db
 from fitnessbot.ai.food_parser import parse_meal, log_meal_from_parsed
 from fitnessbot.ai.prompts import (
     compose_prompt, TASK_COACHING_REPLY, TASK_QUERY_RESPONSE,
     TASK_GOAL_FIT_CHECK, TASK_WORKOUT_EXPLAINER, TASK_TRAINING_GUIDANCE,
-    TASK_EVIDENCE_RESPONSE,
+    TASK_EVIDENCE_RESPONSE, TASK_CONVERSATION, CONVERSATION_CONTINUITY,
 )
 from fitnessbot.event_coaching import (
     is_event_goal_message, is_readiness_check, parse_event_date,
@@ -52,7 +53,68 @@ Use tone_change when the user wants to change the coaching feedback style (blunt
 
 Multi-data messages should produce multiple intents. Be concise.
 If confidence < 0.6, set "ambiguous": true and "clarification": "short question to ask".
+
+A RECENT CONVERSATION block may precede the message. Use it ONLY to understand the new message (e.g. "yes", "make it two", "same as yesterday", answering a question the coach asked). Classify ONLY the new message — never re-extract food, workouts or metrics that were already mentioned in earlier turns. A short reply that answers a coach question with data (e.g. "7 hours" after "how did you sleep?") is that data type; a reply with no new data is "general".
 """
+
+# --- conversation memory ---
+
+HISTORY_MAX_TURNS = 10
+HISTORY_WINDOW_HOURS = 12
+_HISTORY_TURN_CHARS = 1200
+_HISTORY_TOTAL_CHARS = 6000
+_DASHBOARD_LINK = re.compile(r"\s*\[View dashboard\]\([^)]*\)\s*$")
+_TURN_KIND_LABELS = {
+    "morning": "morning briefing",
+    "midday": "midday check-in",
+    "evening": "evening wrap-up",
+    "event_checkin": "event check-in",
+    "summary": "summary",
+}
+
+
+def strip_dashboard_link(text: str) -> str:
+    return _DASHBOARD_LINK.sub("", text).strip()
+
+
+def remember_turn(user_id: int, role: str, text: str, *, channel: str = "telegram",
+                  kind: str = "conversation") -> None:
+    """Record a message in the user's conversation memory; never raises."""
+    text = strip_dashboard_link(text or "")
+    if not text:
+        return
+    try:
+        db.insert_chat_turn(user_id, role, text, channel=channel, kind=kind)
+    except Exception as e:
+        logger.warning("Failed to record chat turn for user %s: %s", user_id, e)
+
+
+def _conversation_history(user_id: int) -> str:
+    """Recent turns as a transcript block for prompts, or "" when there are none."""
+    try:
+        turns = db.get_recent_chat_turns(user_id, limit=HISTORY_MAX_TURNS, since_hours=HISTORY_WINDOW_HOURS)
+    except Exception as e:
+        logger.warning("Failed to load chat history for user %s: %s", user_id, e)
+        return ""
+    if not turns:
+        return ""
+    tz = user_now(user_id).tzinfo
+    lines = []
+    for t in turns:
+        speaker = "User" if t["role"] == "user" else "Coach"
+        label = _TURN_KIND_LABELS.get(t.get("kind", ""))
+        try:
+            stamp = datetime.fromisoformat(t["created_at"].replace("Z", "+00:00")).astimezone(tz).strftime("%a %I:%M %p")
+        except ValueError:
+            stamp = ""
+        head = f"[{stamp}] {speaker}" + (f" ({label})" if label else "")
+        body = t["text"]
+        if len(body) > _HISTORY_TURN_CHARS:
+            body = body[:_HISTORY_TURN_CHARS] + "…"
+        lines.append(f"{head}: {body}")
+    while len(lines) > 1 and sum(len(line) for line in lines) > _HISTORY_TOTAL_CHARS:
+        lines.pop(0)
+    return "RECENT CONVERSATION (oldest first):\n" + "\n".join(lines)
 
 # RESPOND_SYSTEM is now composed dynamically via compose_prompt() in
 # _generate_coaching_reply. The inline prompt is replaced by TASK_COACHING_REPLY
@@ -205,7 +267,8 @@ def _fast_path_intents(text: str, pending: dict | None) -> list[dict] | None:
     return None
 
 
-def _nlu_via_llm(text: str, user_id: int, pending: dict | None) -> tuple[list[dict], dict]:
+def _nlu_via_llm(text: str, user_id: int, pending: dict | None,
+                 history: str = "") -> tuple[list[dict], dict]:
     """Classify via LLM. Returns (intents, token_usage)."""
     from fitnessbot.inference.factory import get_inference
 
@@ -225,6 +288,8 @@ def _nlu_via_llm(text: str, user_id: int, pending: dict | None) -> tuple[list[di
     except Exception:
         pass
 
+    if history:
+        context_parts.append(history)
     context_parts.append(f"TODAY (user's local date): {user_now(user_id).strftime('%A, %Y-%m-%d')}")
     context_parts.append(f"Message: {text}")
 
@@ -1506,7 +1571,8 @@ def _build_training_guidance_context(user_id: int, question: str) -> str:
     return "\n".join(lines)
 
 
-def _generate_coaching_reply(user_id: int, raw_text: str, act_results: list[dict]) -> tuple[str, dict]:
+def _generate_coaching_reply(user_id: int, raw_text: str, act_results: list[dict],
+                             history: str = "") -> tuple[str, dict]:
     """Generate an LLM coaching reply. Returns (reply_text, token_usage)."""
     from fitnessbot.inference.factory import get_inference
 
@@ -1552,11 +1618,20 @@ def _generate_coaching_reply(user_id: int, raw_text: str, act_results: list[dict
         system = compose_prompt(TASK_QUERY_RESPONSE, tone_pref=tone_pref, performance_signal=perf_signal, now=user_now(user_id))
         prompt = f"User asked: \"{qr.get('question', raw_text)}\"\n\n{digest}"
         fallback_fn = lambda: _deterministic_query_response(qr)
+    elif _is_chat_only(act_results):
+        digest = _build_context_digest(user_id, act_results)
+        system = compose_prompt(TASK_CONVERSATION, tone_pref=tone_pref, performance_signal=perf_signal, now=user_now(user_id))
+        prompt = f"User said: \"{raw_text}\"\n\n{digest}"
+        fallback_fn = lambda: _deterministic_confirmation(act_results, user_id)
     else:
         digest = _build_context_digest(user_id, act_results)
         system = compose_prompt(TASK_COACHING_REPLY, tone_pref=tone_pref, performance_signal=perf_signal, now=user_now(user_id))
         prompt = f"User said: \"{raw_text}\"\n\n{digest}"
         fallback_fn = lambda: _deterministic_confirmation(act_results, user_id)
+
+    if history:
+        system = f"{system}\n\n{CONVERSATION_CONTINUITY}"
+        prompt = f"{history}\n\n---\n\n{prompt}"
 
     try:
         infer = get_inference(user_id)
@@ -1582,15 +1657,28 @@ def _generate_coaching_reply(user_id: int, raw_text: str, act_results: list[dict
         return fallback_fn(), {"input_tokens": 0, "output_tokens": 0}
 
 
+def _is_chat_only(act_results: list[dict]) -> bool:
+    """True when the message was conversation with nothing logged or queried."""
+    return bool(act_results) and all(
+        r.get("action") == "none" and r.get("intent_type") == "general" for r in act_results
+    )
+
+
 # --- main loop ---
 
 async def process_message(user_id: int, text: str, channel: str = "text",
-                          return_actions: bool = False):
+                          return_actions: bool = False, remember: bool = True):
     """Run the full understand -> act -> respond loop.
+
+    With ``remember``, recent conversation turns are fed to the model and this
+    exchange is appended to them.
 
     Returns the reply text, or (reply_text, act_results) when return_actions=True.
     """
     pending = db.get_pending_data_request(user_id)
+    history = _conversation_history(user_id) if remember else ""
+    if remember:
+        remember_turn(user_id, "user", text, channel=channel)
 
     # 1. UNDERSTAND
     fast = _fast_path_intents(text, pending)
@@ -1599,7 +1687,7 @@ async def process_message(user_id: int, text: str, channel: str = "text",
     if fast is not None:
         intents = fast
     else:
-        intents, nlu_tokens = _nlu_via_llm(text, user_id, pending)
+        intents, nlu_tokens = _nlu_via_llm(text, user_id, pending, history)
         total_tokens["input_tokens"] += nlu_tokens.get("input_tokens", 0)
         total_tokens["output_tokens"] += nlu_tokens.get("output_tokens", 0)
 
@@ -1612,6 +1700,8 @@ async def process_message(user_id: int, text: str, channel: str = "text",
         category = intents[0].get("metric", intents[0].get("type", "unknown"))
         db.insert_data_request(user_id, category, clarification)
         db.insert_message_log(user_id, channel, transcript=text, detected_intents=json.dumps(intents), response_text=clarification)
+        if remember:
+            remember_turn(user_id, "assistant", clarification, channel=channel)
         return (clarification, []) if return_actions else clarification
 
     # Handle pending answer
@@ -1627,8 +1717,8 @@ async def process_message(user_id: int, text: str, channel: str = "text",
     # 3. RESPOND
     has_real_writes = any(r.get("action", "").endswith("logged") or r.get("action") in ("correction_applied", "profile_updated", "query", "event_goal_created", "readiness_assessed", "tone_changed") for r in act_results)
 
-    if has_real_writes:
-        reply, resp_tokens = _generate_coaching_reply(user_id, text, act_results)
+    if has_real_writes or _is_chat_only(act_results):
+        reply, resp_tokens = _generate_coaching_reply(user_id, text, act_results, history)
         total_tokens["input_tokens"] += resp_tokens.get("input_tokens", 0)
         total_tokens["output_tokens"] += resp_tokens.get("output_tokens", 0)
     else:
@@ -1646,6 +1736,9 @@ async def process_message(user_id: int, text: str, channel: str = "text",
             # Only append if LLM reply doesn't already contain cal info
             if "cal burned" not in reply.lower():
                 reply += "\n\n" + "\n".join(benefit_parts)
+
+    if remember:
+        remember_turn(user_id, "assistant", reply, channel=channel)
 
     # Append dashboard link
     from fitnessbot.config import Config
