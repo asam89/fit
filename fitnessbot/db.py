@@ -2469,33 +2469,37 @@ def get_last_meal(user_id: int) -> dict | None:
 
 
 def update_meal_items(meal_id: int, items: list[dict]) -> None:
+    """Replace a meal's items with freshly parsed ones and recompute its totals."""
     conn = get_connection()
     try:
         conn.execute("DELETE FROM meal_items WHERE meal_id = ?", (meal_id,))
         for item in items:
-            conn.execute(
-                """INSERT INTO meal_items (meal_id, food_id, name, quantity, unit, calories, protein, carbs, fat, fiber)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            food_id = conn.execute(
+                """INSERT INTO foods (name, calories, protein, carbs, fat, fiber, sugar, sodium,
+                                      serving_qty, serving_unit, source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ai')""",
                 (
-                    meal_id,
-                    item.get("food_id"),
-                    item.get("name", ""),
-                    item.get("quantity", 1),
-                    item.get("unit", "serving"),
-                    item.get("calories", 0),
-                    item.get("protein", 0),
-                    item.get("carbs", 0),
-                    item.get("fat", 0),
-                    item.get("fiber", 0),
+                    item.get("name", "Unknown"), item.get("calories", 0), item.get("protein", 0),
+                    item.get("carbs", 0), item.get("fat", 0), item.get("fiber", 0),
+                    item.get("sugar", 0), item.get("sodium", 0), item.get("qty"), item.get("unit"),
+                ),
+            ).lastrowid
+            conn.execute(
+                """INSERT INTO meal_items
+                   (meal_id, food_id, qty, unit, calories, protein, carbs, fat, fiber, sugar, sodium)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    meal_id, food_id, item.get("qty", 1), item.get("unit", "serving"),
+                    item.get("calories", 0), item.get("protein", 0), item.get("carbs", 0),
+                    item.get("fat", 0), item.get("fiber", 0), item.get("sugar", 0), item.get("sodium", 0),
                 ),
             )
-        total_cal = sum(i.get("calories", 0) for i in items)
-        total_pro = sum(i.get("protein", 0) for i in items)
-        total_carb = sum(i.get("carbs", 0) for i in items)
-        total_fat = sum(i.get("fat", 0) for i in items)
         conn.execute(
-            "UPDATE meals SET total_calories = ?, total_protein = ?, total_carbs = ?, total_fat = ? WHERE meal_id = ?",
-            (total_cal, total_pro, total_carb, total_fat, meal_id),
+            """UPDATE meals SET total_calories = ?, total_protein = ?, total_carbs = ?, total_fat = ?,
+                                total_fiber = ?, total_sugar = ?, total_sodium = ?
+               WHERE meal_id = ?""",
+            tuple(sum(i.get(k, 0) for i in items)
+                  for k in ("calories", "protein", "carbs", "fat", "fiber", "sugar", "sodium")) + (meal_id,),
         )
         conn.commit()
     finally:

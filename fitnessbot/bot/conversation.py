@@ -297,7 +297,8 @@ def _act_on_intents(intents: list[dict], user_id: int, raw_text: str) -> list[di
             results.append(r)
         except Exception as e:
             logger.error("ACT failed for intent %s: %s", itype, e)
-            results.append({"intent_type": itype, "action": "error", "error": str(e)})
+            results.append({"intent_type": itype, "action": "error",
+                            "error": "I couldn't save that one. Please try again in a moment."})
     return results
 
 
@@ -634,7 +635,12 @@ def _act_correction(intent: dict, user_id: int, units_pref: str) -> dict:
     if not last_meal:
         return {"action": "correction_no_meal", "note": "No recent meal to correct"}
 
-    new_items = parse_meal(correction_text, units_pref=units_pref, user_id=user_id)
+    corrected_text = (
+        f"{last_meal.get('raw_text', '')}\n"
+        f"Correction from the user: {correction_text}\n"
+        "Return the full corrected meal (every item, with the correction applied)."
+    )
+    new_items = parse_meal(corrected_text, units_pref=units_pref, user_id=user_id)
     if not new_items:
         return {"action": "correction_failed", "note": f"Could not parse correction: {correction_text}"}
 
