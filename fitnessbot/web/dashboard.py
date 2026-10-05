@@ -588,7 +588,7 @@ async def send_summary_to_telegram(request: Request):
     else:
         text = build_evening_wrap(uid)
 
-    sent = await _send_telegram(uid, text)
+    sent = await _send_telegram(uid, text, kind="summary")
     if sent:
         return JSONResponse({"ok": True, "message": "Summary sent to Telegram"})
     return JSONResponse({"ok": False, "error": "Could not send — check Telegram connection in Settings"}, status_code=400)

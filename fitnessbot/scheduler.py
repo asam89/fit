@@ -65,7 +65,7 @@ async def _dispatch_briefings():
                     prompt = _build_activity_prompt(uid, now)
                     if prompt:
                         text += "\n\n" + prompt
-                sent = await _send_telegram(uid, text)
+                sent = await _send_telegram(uid, text, kind="morning")
                 if sent:
                     db.insert_briefing_log(uid, "morning", text[:200])
 
@@ -74,7 +74,7 @@ async def _dispatch_briefings():
                     and current_time == prefs["midday_check_time"]
                     and db.get_briefings_sent_today(uid, "midday") == 0):
                 text = build_midday_check(uid)
-                sent = await _send_telegram(uid, text)
+                sent = await _send_telegram(uid, text, kind="midday")
                 if sent:
                     db.insert_briefing_log(uid, "midday", text[:200])
 
@@ -89,7 +89,7 @@ async def _dispatch_briefings():
                         text += "\n\n" + stale
                 if prefs["weekly_rollup_enabled"] and now.weekday() == prefs["weekly_rollup_day"]:
                     text += "\n\n" + build_weekly_rollup(uid)
-                sent = await _send_telegram(uid, text)
+                sent = await _send_telegram(uid, text, kind="evening")
                 if sent:
                     db.insert_briefing_log(uid, "evening", text[:200], had_nudge=True)
 
@@ -188,7 +188,7 @@ async def _dispatch_event_checkins():
 
                 text = build_motivation_checkin(goal, uid)
                 if text:
-                    sent = await _send_telegram(uid, text)
+                    sent = await _send_telegram(uid, text, kind="event_checkin")
                     if sent:
                         db.update_event_goal(goal["eg_id"], last_checkin_at=db.utcnow())
                         db.insert_briefing_log(uid, "event_checkin", text[:200])
