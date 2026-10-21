@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fitnessbot.config import Config
 
-SCHEMA_VERSION = 24
+SCHEMA_VERSION = 25
 
 SCHEMA_SQL = """
 -- users
@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS users (
     height REAL,
     birthdate TEXT,
     units_pref TEXT NOT NULL DEFAULT 'imperial',
+    run_units TEXT NOT NULL DEFAULT 'km',
     activity_level TEXT,
     dietary_restrictions TEXT,  -- JSON
     feedback_tone_preference TEXT DEFAULT 'neutral',
@@ -586,6 +587,55 @@ CHAT_TURNS_SCHEMA_SQL = (
 )
 
 SCHEMA_SQL += ";\n".join(CHAT_TURNS_SCHEMA_SQL) + ";\n"
+
+# Running: raw metres/seconds only; pace and display units are derived at read time.
+RUNNING_SCHEMA_SQL = (
+    """CREATE TABLE IF NOT EXISTS runs (
+        run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        started_at TEXT NOT NULL,
+        local_date TEXT NOT NULL,
+        distance_m REAL NOT NULL CHECK (distance_m > 0),
+        duration_s INTEGER NOT NULL CHECK (duration_s > 0),
+        moving_time_s INTEGER,
+        elevation_gain_m REAL,
+        avg_hr REAL,
+        max_hr REAL,
+        avg_cadence REAL,
+        run_type TEXT CHECK (run_type IN ('easy', 'tempo', 'interval', 'long', 'race', 'treadmill')),
+        surface TEXT CHECK (surface IN ('road', 'trail', 'track', 'treadmill')),
+        source TEXT NOT NULL CHECK (source IN ('telegram', 'web', 'gpx', 'fit', 'strava', 'apple_health')),
+        external_id TEXT,
+        calories REAL,
+        calories_source TEXT CHECK (calories_source IN ('device', 'strava', 'estimated')),
+        perceived_effort INTEGER CHECK (perceived_effort BETWEEN 1 AND 10),
+        notes TEXT,
+        possible_duplicate_of INTEGER REFERENCES runs(run_id) ON DELETE SET NULL,
+        plan_item_id INTEGER,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))""",
+    """CREATE UNIQUE INDEX IF NOT EXISTS ux_runs_source_ext
+        ON runs(user_id, source, external_id) WHERE external_id IS NOT NULL""",
+    "CREATE INDEX IF NOT EXISTS ix_runs_user_date ON runs(user_id, local_date)",
+    "CREATE INDEX IF NOT EXISTS ix_runs_user_started ON runs(user_id, started_at)",
+    """CREATE TABLE IF NOT EXISTS run_splits (
+        run_id INTEGER NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+        split_index INTEGER NOT NULL,
+        distance_m REAL NOT NULL CHECK (distance_m > 0),
+        duration_s REAL NOT NULL CHECK (duration_s > 0),
+        avg_hr REAL,
+        elevation_change_m REAL,
+        PRIMARY KEY (run_id, split_index))""",
+    """CREATE TABLE IF NOT EXISTS run_drafts (
+        draft_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+        expires_at TEXT NOT NULL)""",
+    "CREATE INDEX IF NOT EXISTS ix_run_drafts_user ON run_drafts(user_id, expires_at)",
+)
+
+SCHEMA_SQL += ";\n".join(RUNNING_SCHEMA_SQL) + ";\n"
 
 
 def get_db_path() -> str:
@@ -1251,9 +1301,36 @@ def run_migrations() -> None:
             conn.execute("INSERT INTO schema_version (version) VALUES (24)")
             conn.commit()
 
+        if current < 25:
+            try:
+                conn.execute("ALTER TABLE users ADD COLUMN run_units TEXT NOT NULL DEFAULT 'km'")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+            for sql in RUNNING_SCHEMA_SQL:
+                conn.execute(sql)
+            conn.execute("INSERT INTO schema_version (version) VALUES (25)")
+            conn.commit()
+
     except sqlite3.OperationalError:
         # schema_version table doesn't exist yet; init_db will create it
         init_db()
+    finally:
+        conn.close()
+
+
+def migrate_down_25() -> None:
+    """Roll back migration 25 (running tables). Manual use only; never called at startup."""
+    conn = get_connection()
+    try:
+        conn.execute("PRAGMA foreign_keys=OFF")
+        for table in ("run_splits", "run_drafts", "runs"):
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
+        try:
+            conn.execute("ALTER TABLE users DROP COLUMN run_units")
+        except sqlite3.OperationalError:
+            pass  # column absent
+        conn.execute("DELETE FROM schema_version WHERE version >= 25")
+        conn.commit()
     finally:
         conn.close()
 
@@ -1311,7 +1388,7 @@ def update_user(user_id: int, **kwargs) -> None:
         return
     allowed = {
         "display_name", "timezone", "sex", "height", "birthdate",
-        "units_pref", "activity_level", "dietary_restrictions",
+        "units_pref", "run_units", "activity_level", "dietary_restrictions",
         "active_provider", "active_model", "feedback_tone_preference",
         "experience_level", "days_available", "equipment", "session_time_min",
         "injuries", "movement_exclusions", "medical_flags", "medical_screen_at",
