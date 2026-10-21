@@ -54,6 +54,8 @@ ACTIVITY_MET_MAP: dict[str, tuple[float, str, list[str]]] = {
     "elliptical": (5.0, "cardiovascular", ["full body"]),
     "stairmaster": (9.0, "cardiovascular", ["quadriceps", "glutes", "calves"]),
     "jump rope": (10.0, "cardiovascular", ["calves", "shoulders", "core"]),
+    "brisk walk": (4.3, "cardiovascular", ["quadriceps", "calves"]),
+    "power walk": (4.3, "cardiovascular", ["quadriceps", "calves"]),
     "walking": (3.5, "cardiovascular", ["quadriceps", "calves"]),
     "walk": (3.5, "cardiovascular", ["quadriceps", "calves"]),
     "hike": (6.0, "cardiovascular", ["quadriceps", "hamstrings", "glutes", "calves"]),

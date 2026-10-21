@@ -20,6 +20,8 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout),
     ],
 )
+# httpx logs full request URLs at INFO, which include the Telegram bot token.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 

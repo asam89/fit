@@ -35,7 +35,7 @@ Return ONLY a JSON object with key "intents" — an array of objects, each with:
 - Fields specific to the type:
   - meal_log: "items" (array of {name, qty, unit}), "meal_type" (breakfast/lunch/dinner/snack), "when" (now/this_morning/last_night)
   - health_metric: "metric" (weight/sleep_hours/sleep_quality/resting_hr/hrv/bp/spo2/body_fat/mood/energy/hydration), "value", "unit", "when"
-  - workout_log: "activity" (strength/cardio/mixed/yoga/etc), "duration_min", "notes"
+  - workout_log: "activity" (the specific activity in the user's words, e.g. "brisk walk", "basketball", "leg day", "yoga"; only use a generic word like "cardio" if the user did), "duration_min", "notes"
   - profile_update: "field" (age/height/sex/units/activity_level), "value"
   - goal_update: "goal_type" (lose/gain/maintain), "target_weight", "target_date"
   - plan_set: "activities" (array of {day: "monday"..."sunday", title: str, type: "strength"/"run"/"cardio"/"mobility"/"sport"/"rest"/"other", duration: int|null})
@@ -367,12 +367,22 @@ def _act_on_intents(intents: list[dict], user_id: int, raw_text: str) -> list[di
     return results
 
 
+_MEAL_TYPES = ("breakfast", "lunch", "dinner", "snack")
+
+
+def _intent_meal_type(intent: dict) -> str | None:
+    """Meal type the user named; None lets the logger infer it from the local hour."""
+    mt = str(intent.get("meal_type") or "").strip().lower()
+    return mt if mt in _MEAL_TYPES else None
+
+
 def _act_meal(intent: dict, user_id: int, raw_text: str, units_pref: str) -> dict:
     meal_text = intent.get("raw_text") or raw_text
     items = parse_meal(meal_text, units_pref=units_pref, user_id=user_id)
     if not items:
         return {"action": "parse_failed", "text": meal_text}
-    result = log_meal_from_parsed(user_id, meal_text, items, source="telegram")
+    result = log_meal_from_parsed(user_id, meal_text, items, source="telegram",
+                                  meal_type=_intent_meal_type(intent))
     return {
         "action": "meal_logged",
         "items": result["items"],
