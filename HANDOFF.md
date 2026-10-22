@@ -14,8 +14,8 @@ Read this at the start of every session. Update it at every checkpoint and befor
 
 ## Workstreams (one PR each, in order)
 - [x] **A: data model.** Migration 25 adds `runs`, `run_splits`, `run_drafts` and `users.run_units`. Code is in `fitnessbot/running/store.py`, with manual rollback via `db.migrate_down_25()`. Tests are in `tests/test_running_store.py`. Not deployed until Alex approves.
-- [ ] **B: Telegram logging.** Add a `run_log` intent that produces a draft, a confirmation card with Save/Edit/Cancel, guardrails, `/run`, `/runs`, `/editrun`, `/deleterun`, and 30+ parser variants. On Save, link the run to a calendar item (`plan_item_id`) so session counts and calories aren't doubled.
-- [ ] **D: stats engine.** Write `fitnessbot/running/stats.py` (pure functions), then `/runstats`, the `/running` page and the PR table.
+- [x] **B: Telegram logging.** Deterministic parser in `fitnessbot/running/parser.py` (no LLM), draft/card/Save flow in `fitnessbot/running/telegram.py`, wired in `bot/handlers.py` ahead of the NLU so run messages never also log a generic workout. `/run`, `/runs`, `/editrun`, `/deleterun`. Save creates a calendar item and stores it in `plan_item_id`. Personal-best messages ("new PB 5K 24:30") keep their old flow. Tests: `tests/test_running_telegram.py`. Needs migration 25 deployed (A + B deploy together). PR celebration on save waits for D's PR table.
+- [ ] **D: stats engine.** Extend `fitnessbot/running/stats.py` (pure functions; B added pace/units formatting there), then `/runstats`, the `/running` page and the PR table.
 - [ ] **C1: GPX/FIT import.** Files come from the bot (no caption) and from upload on the site.
 - [ ] **C2: Strava sync.** Blocked on Alex creating a Strava API app and putting `STRAVA_CLIENT_ID`/`STRAVA_CLIENT_SECRET` in the prod `.env`.
 - [ ] **E: calorie integration.** Behind `RUN_CALORIES_ENABLED` (off by default).

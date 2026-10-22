@@ -18,7 +18,8 @@ from telegram.ext import (
 )
 
 from fitnessbot import db, training_plan
-from fitnessbot.bot.conversation import process_message
+from fitnessbot.bot.conversation import process_message, remember_turn
+from fitnessbot.running import telegram as run_tg
 from fitnessbot.config import Config
 from fitnessbot.metrics import get_weight_summary
 from fitnessbot.voice import download_voice_file, transcribe_audio
@@ -84,8 +85,29 @@ If you can't identify a food clearly, make your best educated guess and note unc
 All numbers should be reasonable real-world values. Err on the side of accuracy over precision."""
 
 
+def _run_markup(reply: "run_tg.Reply") -> InlineKeyboardMarkup | None:
+    if not reply.buttons:
+        return None
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton(label, callback_data=data) for label, data in row] for row in reply.buttons]
+    )
+
+
+def _try_run_message(user_id: int, text: str, state: dict) -> "run_tg.Reply | None":
+    try:
+        return run_tg.handle_text(user_id, text, state)
+    except Exception as e:
+        logger.error("Run parsing failed, falling back to normal handling: %s", e)
+        return None
+
+
 def register_handlers(app: Application, user_id: int) -> None:
     """Register all handlers for a user's bot instance."""
+
+    async def _send_run(message, user_text: str, reply: "run_tg.Reply", prefix: str = ""):
+        await message.reply_text(prefix + reply.text, reply_markup=_run_markup(reply))
+        remember_turn(user_id, "user", user_text)
+        remember_turn(user_id, "assistant", reply.text)
 
     async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = db.get_user_by_id(user_id)
@@ -98,6 +120,8 @@ def register_handlers(app: Application, user_id: int) -> None:
             "Shortcuts:\n"
             "/today - Today's intake & macros\n"
             "/weight - Weight trend\n"
+            "/run - Log a run (or just send 'ran 5k in 27:30')\n"
+            "/runs - Your recent runs\n"
             "/undo - Remove last meal\n"
             "/plan - Training plan\n"
             "/reset - Clear conversation memory\n"
@@ -248,6 +272,10 @@ def register_handlers(app: Application, user_id: int) -> None:
         text = update.message.text
         if not text:
             return
+        run_reply = _try_run_message(user_id, text, context.user_data)
+        if run_reply is not None:
+            await _send_run(update.message, text, run_reply)
+            return
         reply, actions = await process_message(user_id, text, channel="text", return_actions=True)
         await update.message.reply_text(reply)
         markup = _day_picker_for_actions(user_id, actions)
@@ -270,6 +298,10 @@ def register_handlers(app: Application, user_id: int) -> None:
                 await update.message.reply_text("Couldn't transcribe that. Try typing it instead or resend.")
                 return
             echo = f'Heard: "{transcript}"'
+            run_reply = _try_run_message(user_id, transcript, context.user_data)
+            if run_reply is not None:
+                await _send_run(update.message, transcript, run_reply, prefix=f"{echo}\n\n")
+                return
             reply, actions = await process_message(user_id, transcript, channel="voice", return_actions=True)
             await update.message.reply_text(f"{echo}\n\n{reply}")
             markup = _day_picker_for_actions(user_id, actions)
@@ -526,7 +558,39 @@ def register_handlers(app: Application, user_id: int) -> None:
         labels = {"supportive": "💪 Supportive", "neutral": "⚖️ Neutral", "blunt": "🔥 Blunt"}
         await query.edit_message_text(f"Coaching style set to {labels[tone]}. I'll adjust how I talk to you.")
 
+    async def cmd_run(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        args = " ".join(context.args or [])
+        reply = run_tg.start_guided(user_id, context.user_data, args)
+        await update.message.reply_text(reply.text, reply_markup=_run_markup(reply))
+
+    async def cmd_runs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text(run_tg.list_recent(user_id).text)
+
+    async def cmd_editrun(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        reply = run_tg.edit_latest(user_id, context.user_data)
+        await update.message.reply_text(reply.text, reply_markup=_run_markup(reply))
+
+    async def cmd_deleterun(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        reply = run_tg.delete_latest(user_id)
+        await update.message.reply_text(reply.text, reply_markup=_run_markup(reply))
+
+    async def handle_run_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+        try:
+            reply = run_tg.handle_callback(user_id, query.data or "", context.user_data)
+        except Exception as e:
+            logger.error("Run callback failed: %s", e)
+            reply = run_tg.Reply("Something went wrong saving that run. Nothing was changed; try sending it again.")
+        if reply is not None:
+            await query.edit_message_text(reply.text, reply_markup=_run_markup(reply))
+
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("run", cmd_run))
+    app.add_handler(CommandHandler("runs", cmd_runs))
+    app.add_handler(CommandHandler("editrun", cmd_editrun))
+    app.add_handler(CommandHandler("deleterun", cmd_deleterun))
+    app.add_handler(CallbackQueryHandler(handle_run_callback, pattern=r"^run_"))
     app.add_handler(CommandHandler("today", cmd_today))
     app.add_handler(CommandHandler("weight", cmd_weight))
     app.add_handler(CommandHandler("undo", cmd_undo))
