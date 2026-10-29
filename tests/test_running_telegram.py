@@ -59,6 +59,11 @@ def test_parser_variants(text, dist_m, dur_s):
 @pytest.mark.parametrize("text", [
     "ran out of eggs", "ran errands for 2 hours", "running late today", "ran into an old friend",
     "2 eggs and toast for breakfast", "weight 230", "did a 30 min brisk walk", "run the dishwasher",
+    "walked 5k in 50 min", "biked 20k in 45 min", "rowed 5k in 22:00", "did 10k steps today",
+    "hit 12k steps and ate 2 eggs", "what pace should I run my 10k at?", "can I run 5k tomorrow?",
+    "how should I pace my half marathon on saturday?", "I want to run a 5k next month",
+    "plan a long run for sunday 90 min", "I'm running a 10k race on Nov 8", "my 5k pb is 24:10",
+    "spent 20 min on the elliptical then ran 3k", "ran 5k in 27:30 then had 2 eggs for breakfast",
 ])
 def test_not_a_run(text):
     assert not looks_like_run(text)
@@ -268,3 +273,24 @@ def test_runs_editrun_deleterun(tg):
     assert "Deleted" in telegram.handle_callback(1, f"run_del:{rid}", {}).text
     assert _count(db_path, "runs") == 1
     assert _count(db_path, "training_plan_items") == 1
+
+
+def test_unrelated_message_during_edit_keeps_card(tg):
+    telegram, store, db_path = tg
+    state = {}
+    reply = telegram.handle_text(1, "ran 5k in 27:30", state)
+    did = _draft_id(reply)
+    telegram.handle_callback(1, f"run_edit:{did}", state)
+    assert telegram.handle_text(1, "2 eggs and toast for breakfast", state) is None
+    assert state == {}
+    assert "Saved" in telegram.handle_callback(1, f"run_save:{did}", state).text
+
+
+def test_unrelated_message_during_question_falls_through(tg):
+    telegram, _, _ = tg
+    state = {}
+    assert "How far" in telegram.handle_text(1, "went for a run 30 min", state).text
+    assert telegram.handle_text(1, "2 eggs and toast for breakfast", state) is None
+    assert state == {}
+    assert "How far" in telegram.handle_text(1, "went for a run 30 min", state).text
+    assert "didn't catch" in telegram.handle_text(1, "far", state).text

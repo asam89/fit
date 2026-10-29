@@ -21,6 +21,26 @@ _NOT_A_RUN = re.compile(
     re.I,
 )
 
+# Messages that mention a run but aren't a run to log now: other sports, steps, questions,
+# future plans, PBs and meals. These fall through to the normal NLU path unchanged.
+_OTHER_ACTIVITY = re.compile(
+    r"\b(walk(?:ed|ing|s)?|hik(?:e|ed|es|ing)|bik(?:e|ed|es|ing)|bicycl\w*|cycl\w*|ride|rode|riding|"
+    r"row(?:ed|ing)?|swim(?:ming)?|swam|elliptical|spin(?:ning)?|steps|skat\w*|ski(?:ed|ing)?)\b",
+    re.I,
+)
+_QUESTION = re.compile(
+    r"\?\s*$|^\s*(what|how|when|where|why|which|should|shall|can|could|would|will|do|does|did\s+i|is|are|"
+    r"any|plan|schedule|move|skip|remind|suggest|give\s+me|make\s+me)\b",
+    re.I,
+)
+_FUTURE = re.compile(
+    r"\b(want\s+to|wanna|going\s+to|gonna|planning|plan\s+to|will\s+run|tomorrow|next\s+(?:week|month|year|time)|"
+    r"signed\s+up|registered|(?:i'?m|i\s+am)\s+running)\b",
+    re.I,
+)
+_PB_WORDS = re.compile(r"\b(pb|pr|personal\s+(?:best|record))\b", re.I)
+_FOOD = re.compile(r"\b(ate|eaten|drank|had\s+\d|for\s+(?:breakfast|lunch|dinner|a\s+snack|snack))\b", re.I)
+
 _UNIT_KM = r"(?:k|km|kms|kilometers?|kilometres?|klm)"
 _UNIT_MI = r"(?:mi|mile|miles|mls?)"
 _DIST = re.compile(rf"(\d+(?:[.,]\d+)?)\s*({_UNIT_KM}|{_UNIT_MI}|m|meters?|metres?)\b", re.I)
@@ -71,6 +91,8 @@ _SURFACE_WORDS = (
 def looks_like_run(text: str) -> bool:
     t = text or ""
     if _NOT_A_RUN.search(t) or not _RUN_WORD.search(t):
+        return False
+    if any(p.search(t) for p in (_OTHER_ACTIVITY, _QUESTION, _FUTURE, _PB_WORDS, _FOOD)):
         return False
     return bool(_DIST.search(t) or _INTERVALS.search(t) or _HMS.search(t) or _MS.search(t)
                 or _MIN.search(t) or _H_M.search(t) or any(p.search(t) for p, _ in _NAMED_DIST))

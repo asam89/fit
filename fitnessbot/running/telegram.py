@@ -126,6 +126,9 @@ def _continue_flow(user_id: int, text: str, state: dict) -> Reply:
     units = _units(user_id)
     if step == "distance_m":
         d = parse_distance(text, units)
+        if not d and len(text.split()) > 3:
+            state.pop(_FLOW_KEY, None)
+            return None  # an unrelated message; drop the question and handle it normally
         if not d:
             return Reply("I didn't catch the distance. Try something like 5k, 3.1 mi or 8 (or say cancel).")
         draft["distance_m"] = round(d, 1)
@@ -134,6 +137,9 @@ def _continue_flow(user_id: int, text: str, state: dict) -> Reply:
             draft["duration_s"] = t
     elif step == "duration_s":
         t = parse_duration(text) or (int(float(text)) * 60 if text.strip().replace(".", "", 1).isdigit() else None)
+        if not t and len(text.split()) > 3:
+            state.pop(_FLOW_KEY, None)
+            return None
         if not t:
             return Reply("I didn't catch the time. Try 27:30, 58 min or 1:05:00 (or say cancel).")
         draft["duration_s"] = t
@@ -151,14 +157,19 @@ def _apply_edit(user_id: int, text: str, state: dict) -> Reply:
     base = store.get_draft(user_id, draft_id)
     if base is None:
         return Reply("That run card expired. Send the run again, e.g. 'ran 5k in 27:30'.")
-    store.delete_draft(user_id, draft_id)
     payload = dict(base)
     parsed = parse_run(text, today=_today(user_id), default_units=_units(user_id))
+    changed = False
     for k in ("distance_m", "duration_s", "run_type", "surface", "avg_hr", "max_hr", "perceived_effort", "splits"):
         if parsed.get(k) is not None:
             payload[k] = parsed[k]
+            changed = True
     if parsed["date"] != _today(user_id).isoformat() or "today" in text.lower():
         payload["date"] = parsed["date"]
+        changed = True
+    if not changed:
+        return None  # not an edit; the card stays open and the message is handled normally
+    store.delete_draft(user_id, draft_id)
     return _new_draft_card(user_id, payload)
 
 
