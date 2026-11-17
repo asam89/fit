@@ -188,6 +188,27 @@ def list_runs(user_id: int, *, start_date: str | None = None, end_date: str | No
         conn.close()
 
 
+def list_runs_with_splits(user_id: int, **filters) -> list[dict]:
+    """list_runs() with each run's splits attached (one query for all splits)."""
+    runs = list_runs(user_id, **filters)
+    if not runs:
+        return runs
+    conn = db.get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT s.* FROM run_splits s JOIN runs r ON r.run_id = s.run_id "
+            "WHERE r.user_id = ? ORDER BY s.run_id, s.split_index", (user_id,)
+        ).fetchall()
+    finally:
+        conn.close()
+    by_run: dict[int, list[dict]] = {}
+    for sp in rows:
+        by_run.setdefault(sp["run_id"], []).append(dict(sp))
+    for r in runs:
+        r["splits"] = by_run.get(r["run_id"], [])
+    return runs
+
+
 def latest_run(user_id: int) -> dict | None:
     runs = list_runs(user_id, limit=1)
     return get_run(user_id, runs[0]["run_id"]) if runs else None
