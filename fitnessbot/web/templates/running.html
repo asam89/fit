@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Running{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+  .card{background:#fff;border:1px solid #E6E8EE;border-radius:14px;box-shadow:0 1px 2px rgba(20,22,29,.03),0 8px 24px -18px rgba(20,22,29,.18)}
+  .eyebrow{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#9aa1b0}
+  .num{font-variant-numeric:tabular-nums}
+  table.runs{width:100%;border-collapse:collapse;font-size:14px}
+  table.runs th{text-align:left;font-weight:500;color:#646B7A;font-size:12px;padding:8px 6px;border-bottom:1px solid #E6E8EE}
+  table.runs td{padding:9px 6px;border-bottom:1px solid #EFF1F5;font-variant-numeric:tabular-nums}
+  table.runs tr:last-child td{border-bottom:none}
+  .field{border:1px solid #E6E8EE;border-radius:10px;padding:6px 10px;font-size:14px;background:#fff}
+</style>
+{% endblock %}
+{% block content %}
+<div class="flex items-baseline justify-between mb-5">
+  <h1 class="font-display font-bold text-2xl tracking-tight">Running</h1>
+  <span class="text-sm text-muted">Units: {{ units }} · change on your Profile</span>
+</div>
+
+{% if not has_runs %}
+<div class="card p-6 text-center">
+  <p class="font-medium mb-1">No runs yet</p>
+  <p class="text-sm text-muted">Send the bot something like "ran 5k in 27:30" or use /run.</p>
+</div>
+{% else %}
+
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" data-testid="stat-tiles">
+  <div class="card p-4"><div class="eyebrow">This week</div>
+    <div class="font-display text-xl font-semibold num mt-1" data-stat="week_distance">{{ view.week_distance }}</div>
+    <div class="text-xs text-muted">{{ view.week_label }} · <span data-stat="week_runs">{{ view.week_runs }}</span> run{{ '' if view.week_runs == 1 else 's' }}</div></div>
+  <div class="card p-4"><div class="eyebrow">4-week avg</div>
+    <div class="font-display text-xl font-semibold num mt-1" data-stat="four_week_avg">{{ view.four_week_avg }}</div>
+    <div class="text-xs text-muted">per week · completed weeks</div></div>
+  <div class="card p-4"><div class="eyebrow">Streak</div>
+    <div class="font-display text-xl font-semibold num mt-1" data-stat="streak">{{ view.streak }}</div>
+    <div class="text-xs text-muted">week{{ '' if view.streak == 1 else 's' }} with a run</div></div>
+  <div class="card p-4"><div class="eyebrow">PRs</div>
+    <div class="font-display text-xl font-semibold num mt-1">{{ view.prs|length }}</div>
+    <div class="text-xs text-muted">of 5 distances</div></div>
+</div>
+
+{% if view.load_note %}
+<div class="mb-4 rounded-xl border px-4 py-3 text-sm" style="background:#FEF1EC;border-color:#F6D8C6;color:#7a3a0b" data-stat="load_note">{{ view.load_note }}</div>
+{% endif %}
+
+<div class="card p-4 mb-4">
+  <div class="eyebrow mb-3">Weekly distance · 12 weeks</div>
+  <div style="height:220px"><canvas id="weeklyChart" aria-label="Weekly distance for the last 12 weeks"></canvas></div>
+</div>
+
+<div class="card p-4 mb-4">
+  <div class="eyebrow mb-3">Easy-run pace · 8 weeks</div>
+  {% if chart.pace_values|select|list %}
+  <div style="height:200px"><canvas id="paceChart" aria-label="Average easy-run pace per week"></canvas></div>
+  {% else %}
+  <p class="text-sm text-muted">Tag runs as "easy" to see your easy-pace trend.</p>
+  {% endif %}
+</div>
+
+<div class="card p-4 mb-4">
+  <div class="eyebrow mb-3">Personal records</div>
+  {% if view.prs %}
+  <table class="runs" data-testid="pr-table">
+    <thead><tr><th>Distance</th><th>Time</th><th>Date</th></tr></thead>
+    <tbody>
+    {% for p in view.prs %}
+    <tr><td>{{ p.distance }}</td><td data-pr="{{ p.distance }}">{{ p.time }}</td>
+        <td><a class="text-accent hover:underline" href="/running/{{ p.run_id }}">{{ p.date }}</a></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="text-sm text-muted">PRs appear once you log a run close to 1K, 5K, 10K, half or full marathon.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card p-4">
+  <div class="eyebrow mb-3">History</div>
+  <form method="get" class="flex flex-wrap gap-2 items-end mb-3 text-sm">
+    <label class="flex flex-col gap-1 text-muted text-xs">Type
+      <select name="type" class="field">
+        <option value="">All</option>
+        {% for t in run_types %}<option value="{{ t }}" {% if filters.type == t %}selected{% endif %}>{{ t|capitalize }}</option>{% endfor %}
+      </select></label>
+    <label class="flex flex-col gap-1 text-muted text-xs">From<input type="date" name="start" value="{{ filters.start }}" class="field"></label>
+    <label class="flex flex-col gap-1 text-muted text-xs">To<input type="date" name="end" value="{{ filters.end }}" class="field"></label>
+    <button class="rounded-lg bg-accent text-white px-4 py-1.5 font-medium">Filter</button>
+    {% if filters.type or filters.start or filters.end %}<a href="/running" class="text-muted hover:text-ink py-1.5">Clear</a>{% endif %}
+  </form>
+  {% if history %}
+  <div class="overflow-x-auto">
+  <table class="runs" data-testid="history">
+    <thead><tr><th>Date</th><th>Distance</th><th>Time</th><th>Pace</th><th>Type</th><th>HR</th></tr></thead>
+    <tbody>
+    {% for r in history %}
+    <tr><td><a class="text-accent hover:underline" href="/running/{{ r.run_id }}">{{ r.date }}</a></td>
+        <td>{{ r.distance }}</td><td>{{ r.time }}</td><td>{{ r.pace }}</td>
+        <td>{{ r.run_type or '–' }}</td><td>{{ r.avg_hr or '–' }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="text-sm text-muted">No runs match these filters.</p>
+  {% endif %}
+</div>
+
+{% if has_runs %}
+<script>
+(function(){
+  const data = {{ chart|tojson }};
+  const fmt = s => s == null ? '–' : Math.floor(s/60) + ':' + String(Math.round(s%60)).padStart(2,'0');
+  const grid = {color:'#EFF1F5'}, ticks = {color:'#646B7A', font:{size:11}};
+  new Chart(document.getElementById('weeklyChart'), {
+    type:'bar',
+    data:{labels:data.weekly_labels, datasets:[{data:data.weekly_values, backgroundColor:'#2D52F5', borderRadius:4, maxBarThickness:28}]},
+    options:{maintainAspectRatio:false, plugins:{legend:{display:false},
+      tooltip:{callbacks:{label:c => c.parsed.y.toFixed(2) + ' ' + data.units}}},
+      scales:{x:{grid:{display:false}, ticks}, y:{beginAtZero:true, grid, ticks}}}
+  });
+  const pace = document.getElementById('paceChart');
+  if (pace) new Chart(pace, {
+    type:'line',
+    data:{labels:data.pace_labels, datasets:[{data:data.pace_values, borderColor:'#11A36B', backgroundColor:'#11A36B', spanGaps:true, tension:.25, pointRadius:3}]},
+    options:{maintainAspectRatio:false, plugins:{legend:{display:false},
+      tooltip:{callbacks:{label:c => fmt(c.parsed.y) + '/' + data.units}}},
+      scales:{x:{grid:{display:false}, ticks}, y:{reverse:true, grid, ticks:{...ticks, callback:v => fmt(v)}}}}
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

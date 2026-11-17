@@ -47,6 +47,7 @@
         {% if user.is_superadmin %}
         <a href="/admin" class="text-xs font-mono uppercase tracking-wider text-purple-500 hover:text-purple-700 hidden sm:inline">Admin</a>
         {% endif %}
+        <a href="/running" class="text-sm text-muted hover:text-ink flex-shrink-0">Running</a>
         <span class="text-sm text-muted hidden sm:inline truncate max-w-[120px]">{{ user.display_name }}</span>
         <a href="/settings" class="p-1.5 rounded-lg hover:bg-gray-100 transition-colors flex-shrink-0" title="Settings">
           <svg class="w-5 h-5 text-muted" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">

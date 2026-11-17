@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Run · {{ run.date }}{% endblock %}
+{% block head %}
+<style>
+  .card{background:#fff;border:1px solid #E6E8EE;border-radius:14px;box-shadow:0 1px 2px rgba(20,22,29,.03),0 8px 24px -18px rgba(20,22,29,.18)}
+  .eyebrow{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#9aa1b0}
+  table.runs{width:100%;border-collapse:collapse;font-size:14px}
+  table.runs th{text-align:left;font-weight:500;color:#646B7A;font-size:12px;padding:8px 6px;border-bottom:1px solid #E6E8EE}
+  table.runs td{padding:9px 6px;border-bottom:1px solid #EFF1F5;font-variant-numeric:tabular-nums}
+  table.runs tr:last-child td{border-bottom:none}
+</style>
+{% endblock %}
+{% block content %}
+<a href="/running" class="text-sm text-muted hover:text-ink">← Running</a>
+<h1 class="font-display font-bold text-2xl tracking-tight mt-2 mb-4">{{ run.date }} · {{ run.distance }}</h1>
+
+<div class="grid grid-cols-3 gap-3 mb-4">
+  <div class="card p-4"><div class="eyebrow">Time</div><div class="font-display text-xl font-semibold mt-1">{{ run.time }}</div></div>
+  <div class="card p-4"><div class="eyebrow">Pace</div><div class="font-display text-xl font-semibold mt-1">{{ run.pace }}</div></div>
+  <div class="card p-4"><div class="eyebrow">Avg HR</div><div class="font-display text-xl font-semibold mt-1">{{ run.avg_hr or '–' }}</div></div>
+</div>
+
+<div class="card p-4 mb-4 text-sm text-muted">
+  Type: {{ run.run_type or 'not set' }}{% if run.surface %} · Surface: {{ run.surface }}{% endif %}
+  {% if run.max_hr %} · Max HR: {{ run.max_hr|int }}{% endif %}
+  {% if run.elevation_gain_m %} · Elevation: {{ run.elevation_gain_m|round|int }} m{% endif %}
+  · Source: {{ run.source }}
+  {% if run.notes %}<p class="mt-2 text-ink">{{ run.notes }}</p>{% endif %}
+</div>
+
+<div class="card p-4 mb-4">
+  <div class="eyebrow mb-3">{{ 'Work reps' if run.interval else 'Splits' }}</div>
+  {% if splits %}
+  {% if run.interval %}<p class="text-xs text-muted mb-2">Interval runs store work reps only, so they don't count toward PRs.</p>{% endif %}
+  <div class="overflow-x-auto">
+  <table class="runs" data-testid="splits">
+    <thead><tr><th>#</th><th>Distance</th>{% if not run.interval %}<th>Total</th>{% endif %}<th>Time</th><th>Pace</th><th>HR</th><th>Zone</th></tr></thead>
+    <tbody>
+    {% for s in splits %}
+    <tr><td>{{ s.index }}</td><td>{{ s.distance }}</td>{% if not run.interval %}<td>{{ s.cumulative }}</td>{% endif %}
+        <td>{{ s.time }}</td><td>{{ s.pace }}</td><td>{{ s.avg_hr or '–' }}</td><td>{{ s.zone or '–' }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <p class="text-sm text-muted">No splits for this run. Imported GPX/FIT files will include them.</p>
+  {% endif %}
+</div>
+
+<div class="card p-4">
+  <div class="eyebrow mb-3">Heart-rate zones</div>
+  {% if zones %}
+  <p class="text-xs text-muted mb-2">From per-split average HR, against a max HR of {{ max_hr }}.</p>
+  <table class="runs" data-testid="zones">
+    <thead><tr><th>Zone</th><th>Time</th></tr></thead>
+    <tbody>{% for z in zones %}<tr><td>{{ z.zone }}</td><td>{{ z.time }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% elif not max_hr %}
+  <p class="text-sm text-muted">Add your birthdate on your Profile, or log a run with max HR, to see zones.</p>
+  {% else %}
+  <p class="text-sm text-muted">This run has no per-split heart rate.</p>
+  {% endif %}
+</div>
+{% endblock %}

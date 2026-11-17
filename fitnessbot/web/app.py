@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from fitnessbot.config import Config
-from fitnessbot.web import admin, auth, connections, dashboard, goals, health_data, plan, profile, settings, social, workout
+from fitnessbot.web import admin, auth, connections, dashboard, goals, health_data, plan, profile, running, settings, social, workout
 
 
 def create_app() -> FastAPI:
@@ -32,6 +32,7 @@ def create_app() -> FastAPI:
     app.include_router(profile.router)
     app.include_router(health_data.router)
     app.include_router(connections.router)
+    app.include_router(running.router)
 
     @app.get("/")
     async def root(request: Request):

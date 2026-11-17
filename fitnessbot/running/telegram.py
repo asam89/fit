@@ -12,6 +12,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from fitnessbot import db
 from fitnessbot.running import store
 from fitnessbot.running.parser import guardrail_questions, looks_like_run, parse_distance, parse_duration, parse_run
+from fitnessbot.running import stats
 from fitnessbot.running.stats import format_distance, format_duration, format_pace, pace_s_per_km
 from fitnessbot.tz import user_now, user_today
 
@@ -236,6 +237,7 @@ def _save(user_id: int, draft_id: int) -> Reply:
     units = _units(user_id)
     optional = {k: p[k] for k in ("run_type", "surface", "avg_hr", "max_hr", "perceived_effort", "notes")
                 if p.get(k) is not None}
+    prs_before = _prs(user_id)
     if p.get("run_id"):
         run = store.get_run(user_id, p["run_id"])
         if run is None:
@@ -266,7 +268,41 @@ def _save(user_id: int, draft_id: int) -> Reply:
             f"on {_nice_date(run['local_date'])}.")
     if run.get("possible_duplicate_of"):
         text += "\nThis looks like a run you already have from another source. Both are kept for now."
+    if prs_before is not None:
+        after = _prs(user_id)
+        fresh = [p for p in stats.new_records(prs_before, after or []) if p["run_id"] == run["run_id"]]
+        if fresh:
+            text += "\n" + "\n".join(stats.format_new_records(fresh))
     return Reply(text)
+
+
+def _prs(user_id: int) -> list[dict] | None:
+    """Current PRs, or None if they can't be computed (never blocks a save)."""
+    try:
+        return stats.personal_records(store.list_runs_with_splits(user_id))
+    except Exception as e:
+        logger.warning("PR lookup failed: %s", e)
+        return None
+
+
+def run_stats(user_id: int) -> Reply:
+    """/runstats: this week, 4-week average, streak, load note and PRs."""
+    summary = stats.user_summary(user_id)
+    if not summary["total_runs"]:
+        return Reply("No runs logged yet. Send one like 'ran 5k in 27:30' or use /run.")
+    v = stats.present(summary, _units(user_id))
+    lines = [
+        "\U0001F3C3 Running stats",
+        f"This week ({v['week_label']}): {v['week_distance']} · {v['week_runs']} run{'' if v['week_runs'] == 1 else 's'}",
+        f"4-week average: {v['four_week_avg']}" + ("/week" if summary["four_week_avg_m"] is not None else ""),
+        f"Streak: {v['streak']} week{'' if v['streak'] == 1 else 's'} with a run",
+    ]
+    if v["load_note"]:
+        lines.append(f"\u26A0\uFE0F {v['load_note']}")
+    if v["prs"]:
+        lines += ["", "\U0001F3C6 PRs:"] + [f"{p['distance']}: {p['time']} ({p['date']})" for p in v["prs"]]
+    lines += ["", "Charts and history: /running on the website."]
+    return Reply("\n".join(lines))
 
 
 def handle_callback(user_id: int, data: str, state: dict) -> Reply | None:

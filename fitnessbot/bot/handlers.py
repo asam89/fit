@@ -122,6 +122,7 @@ def register_handlers(app: Application, user_id: int) -> None:
             "/weight - Weight trend\n"
             "/run - Log a run (or just send 'ran 5k in 27:30')\n"
             "/runs - Your recent runs\n"
+            "/runstats - Weekly distance, streak and PRs\n"
             "/undo - Remove last meal\n"
             "/plan - Training plan\n"
             "/reset - Clear conversation memory\n"
@@ -566,6 +567,9 @@ def register_handlers(app: Application, user_id: int) -> None:
     async def cmd_runs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(run_tg.list_recent(user_id).text)
 
+    async def cmd_runstats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await update.message.reply_text(run_tg.run_stats(user_id).text)
+
     async def cmd_editrun(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply = run_tg.edit_latest(user_id, context.user_data)
         await update.message.reply_text(reply.text, reply_markup=_run_markup(reply))
@@ -588,6 +592,7 @@ def register_handlers(app: Application, user_id: int) -> None:
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("run", cmd_run))
     app.add_handler(CommandHandler("runs", cmd_runs))
+    app.add_handler(CommandHandler("runstats", cmd_runstats))
     app.add_handler(CommandHandler("editrun", cmd_editrun))
     app.add_handler(CommandHandler("deleterun", cmd_deleterun))
     app.add_handler(CallbackQueryHandler(handle_run_callback, pattern=r"^run_"))
